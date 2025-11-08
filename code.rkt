@@ -85,9 +85,8 @@
 ;; ---- Interpreters ----
 
 ;; top-interp - Parse and evaluate the S-exp, return a serialized String result
-(define (top-interp [s : Sexp] [memsize : Integer]) : String
-  (define main-store (init-store memsize))
-  (serialize (interp (parse s) top-env main-store)))
+(define (top-interp [s : Sexp] [memsize : Natural]) : String
+  (serialize (interp (parse s) top-env (make-initial-store memsize))))
 
 ;; interp - takes the complete AST (ExprC) with an Env, returning a Value
 (define (interp [e : ExprC] [env : Env] [store : (Vectorof Value)]) : Value
@@ -422,13 +421,13 @@
 (define (create-env [args : (Listof Symbol)] [vals : (Listof Value)] [env : Env]) : Env
   (match* (args vals)
     [('() '()) env]
-    [('() _) (error 'create-env "SHEQ: too many values were passed in application ~a ~a" args vals)]
-    [(_ '()) (error 'create-env "SHEQ: too few values were passed in application ~a ~a" args vals)]
+    [('() _) (error 'create-env "SHEQ: create-env received too many values were passed in application ~a ~a" args vals)]
+    [(_ '()) (error 'create-env "SHEQ: create-env received too few values were passed in application ~a ~a" args vals)]
     [((cons fa ra) (cons fv rv))
      (create-env ra rv (cons (Binding fa fv) env))]))
 
-;; init-store - takes a Natural number size, returns a Vector of Values where index 0 is equal to 1
-(define (init-store [size : Integer]) : (Vectorof Value)
+;; make-initial-store - takes a Natural number size, returns a Vector of Values where index 0 is equal to 1
+(define (make-initial-store [size : Natural]) : (Vectorof Value)
   (define stre : (Mutable-Vectorof Value) (make-vector size 0))
   (vector-set! stre 0 1)
   stre)
@@ -445,7 +444,7 @@
   next-free)
 
 
-;; ---- Tests ----(define store (make-vector 1000))
+;; ---- Tests ----
 
 ;; Large test
 ; The program calculates two areas using two different functions, and then compares them.
@@ -458,11 +457,11 @@
                 in
                 {gt {square 4} {area 4 3} 0 1}
                 end})
-(check-equal? (top-interp prog 2) "0")
+(check-equal? (top-interp prog 100) "0")
 
 ;; ---- top-interp Tests ----
-(check-equal? (top-interp '{+ 3 2} 12) "5")
-(check-equal? (top-interp '{if {<= 5 10} "less than" "not less than"} 10) "\"less than\"")
+(check-equal? (top-interp '{+ 3 2} 100) "5")
+(check-equal? (top-interp '{if {<= 5 100} "less than" "not less than"} 10) "\"less than\"")
 
 (check-equal? (top-interp 
                '{let {[x = 5]
@@ -473,8 +472,9 @@
                               {+ x x}
                               end}}}
                   end}
-               10) "107")
+               100) "107")
 
+;; - top-interp seq test
 (check-equal? (top-interp '{seq
                             {let ([n = 5])
                               in
@@ -484,20 +484,36 @@
                               in
                               {* 2 x}
                               end}}
-                          10) "4")
+                          100) "4")
 
-;; incorect num of arguments (from handin)
+;; - top-interp with arrays
+(check-equal? (top-interp '{let ([arr1 = {make-array 5 0}]
+                                 [arr2 = {array 0 0 0 0 0}])
+                             in
+                             {equal? arr1 arr2}
+                             end} 100) "false")
+
+(check-equal? (top-interp '{let ([arr3 = {make-array 5 0}]
+                                 [f = {lambda (x) : {* x 2}}])
+                             in
+                             {seq
+                              {aset! arr3 0 {f 10}}
+                              {aref arr3 0}}
+                             end} 100) "20")
+
+;; - incorect num of arguments (from handin)
 (check-exn #rx"SHEQ: Incorrect number of arguments for CloV"
-           (lambda () (top-interp '{{lambda () : 19} 17} 10)))
+           (lambda () (top-interp '{{lambda () : 19} 17} 100)))
 
-;; divide by zero error test case (from handin)
+;; - divide by zero error test case (from handin)
 (check-exn #rx"SHEQ: Divide by zero error"
            (lambda () (top-interp
                        '{{lambda (ignoreit) : {ignoreit {/ 52 {+ 0 0}}}} {lambda (x) : {+ 7 x}}}
-                       10)))
+                       100)))
 
 ;; ---- interp tests ----
-(define test-store (init-store 100))
+(define test-store (make-initial-store 100)) ; test-store is a store for the tests below
+
 (check-equal? (interp (IdC 'true) top-env test-store) #t)
 
 (check-equal? (interp (NumC 89) top-env test-store) 89)
@@ -668,7 +684,7 @@
                            test-store) #f)
 
 ;; - equal? array test
-(define temp-store (init-store 20))
+(define temp-store (make-initial-store 20))
 (define left (interp-prim (PrimV 'make-array) (list 3 0) temp-store))
 (define right (interp-prim (PrimV 'make-array) (list 5 11) temp-store))
 (check-equal? (interp-prim (PrimV 'equal?) (list left right) temp-store) #f)
@@ -749,8 +765,8 @@
 ;; test-store[1] = ArrayV of size 3 of all 10's
 (check-equal? (interp-prim (PrimV 'make-array) (list 3 10) test-store) (ArrayV 1 3))
 
-
-
+(check-exn #rx"SHEQ: Out of memory"
+           (lambda () (interp-prim (PrimV 'make-array) (list 1000000 1) test-store)))
 
 (check-exn #rx"SHEQ: make-array expected size 1 or greater"
            (lambda () (interp-prim (PrimV 'make-array) (list 0 1) test-store)))
@@ -827,9 +843,9 @@
 ;; create-env tests
 (check-equal? (create-env (list 'a) (list 5) (list (Binding 'random 314)))
               (list (Binding 'a 5) (Binding 'random 314)))
-(check-exn #rx"SHEQ: too many values were passed in application"
+(check-exn #rx"SHEQ: create-env received too many values were passed in application"
            (lambda () (create-env (list 'a) (list 5 3 4) (list (Binding 'random 314)))))
-(check-exn #rx"SHEQ: too few values were passed in application"
+(check-exn #rx"SHEQ: create-env received too few values were passed in application"
            (lambda () (create-env (list 'a 'x) (list 4) (list (Binding 'random 314)))))
 
 ;; get-binding tests
@@ -837,16 +853,19 @@
 (check-exn #rx"SHEQ: An unbound identifier" (lambda () (get-binding-val 'sym '())))
 
 
-;; init-store tests
-(check-equal? (init-store 4) '#(1 0 0 0))
-(check-equal? (vector-length (init-store 10)) 10)
-(check-equal? (vector-ref (init-store 102) 0) 1)
+;; make-initial-store tests
+(check-equal? (make-initial-store 4) '#(1 0 0 0))
+(check-equal? (vector-length (make-initial-store 10)) 10)
+(check-equal? (vector-ref (make-initial-store 102) 0) 1)
 
 ;; allocate tests
-(check-equal? (allocate (init-store 12) 3) 1)
-(check-exn #rx"SHEQ: Out of memory. Tried to allocate" (lambda () (allocate (init-store 2) 3)))
-(define st (init-store 10))
+(check-equal? (allocate (make-initial-store 12) 3) 1)
+
+(define st (make-initial-store 10))
 (check-equal? (allocate st 3) 1)
 (check-equal? (vector-ref st 0) 4)
 (check-equal? (allocate st 2) 4)
 (check-equal? (vector-ref st 0) 6)
+
+(check-exn #rx"SHEQ: Out of memory. Tried to allocate" (lambda () (allocate (make-initial-store 2) 3)))
+
