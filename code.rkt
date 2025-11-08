@@ -188,7 +188,6 @@
      (match args
        [(list a b)
         (cond [(or (CloV? a) (CloV? b) (PrimV? a) (PrimV? b)) #f]
-           
               [else (equal? a b)])]
        [_ (error 'interp-prim "SHEQ: Incorrect number of arguments")])]
     ['substring
@@ -267,7 +266,7 @@
             (define arr (make-vector len val))
             (define addr (allocate store len))
             (for ([i (in-range len)])
-              (vector-set! store (+ addr 1) val))
+              (vector-set! store (+ addr i) val))
             
             (ArrayV addr len)]
           [(and (natural? size) (< size 1))
@@ -275,19 +274,31 @@
           [(not (natural? size))
            (error 'interp-prim "SHEQ: make-array expected a natural number for size, got ~a" size)]
           )])]
+    ['array
+     (match args
+       ['() (error 'interp-prim "SHEQ: array expected at least one element, got ~a" args)]
+       [_
+        (define len (length args))
+        (define addr (allocate store len))
+        (for ([i (in-range len)] [v args])
+          (vector-set! store (+ addr i) v))
+        (ArrayV addr len)])]
+    ['aref
+     (match args
+       [(list arr index)
+        (cond
+          [(not (ArrayV? arr))
+           (error 'interp-prim "SHEQ: aref expected an array, got ~a" arr)]
+          [(not (integer? index))
+           (error 'interp-prim "SHEQ: aref expected an integer for index, got ~a" index)]
+          [(or (< index 0) (>= index (ArrayV-size arr)))
+           (error 'interp-prim "SHEQ: aref index out of bounds. ~a index for array of size ~a"
+                  index
+                  (ArrayV-size arr))]
+          [else
+           (vector-ref store (cast (+ (ArrayV-address arr) index) Nonnegative-Integer)) ])])]
     [_
      (error 'interp-prim "SHEQ: Invalid PrimV op, got ~a" args)]))
-
-;; allocate takes a Vector of Values and a Natural number size, returns a Natural pointer to which the Value was stored at
-(define (allocate [stre : (Vectorof Value)] [n : Natural]): Natural
-  (define next-free (assert (vector-ref stre 0) natural?))
-  (define new-free (+ next-free n))
-  (if (>= new-free (vector-length stre))
-      (error 'allocate "SHEQ: Out of memory. Tried to allocate ~a cells, but only ~a are left."
-             n
-             (- (vector-length stre) next-free))
-      (vector-set! stre 0 new-free))
-  next-free)
 
 
 
@@ -405,6 +416,17 @@
   (define stre : (Mutable-Vectorof Value) (make-vector size 0))
   (vector-set! stre 0 1)
   stre)
+
+;; allocate - takes a Vector of Values and a Natural number size, returns a Natural pointer to which the Value was stored
+(define (allocate [stre : (Vectorof Value)] [n : Natural]): Natural
+  (define next-free (assert (vector-ref stre 0) natural?))
+  (define new-free (+ next-free n))
+  (if (>= new-free (vector-length stre))
+      (error 'allocate "SHEQ: Out of memory. Tried to allocate ~a cells, but only ~a are left."
+             n
+             (- (vector-length stre) next-free))
+      (vector-set! stre 0 new-free))
+  next-free)
 
 
 ;; ---- Tests ----(define store (make-vector 1000))
@@ -628,6 +650,15 @@
 (check-equal? (interp-prim (PrimV 'equal?)
                            (list (PrimV '-) (PrimV '-))
                            test-store) #f)
+
+;; - equal? array test
+(define temp-store (init-store 20))
+(define left (interp-prim (PrimV 'make-array) (list 3 0) temp-store))
+(define right (interp-prim (PrimV 'make-array) (list 5 11) temp-store))
+(check-equal? (interp-prim (PrimV 'equal?) (list left right) temp-store) #f)
+(check-equal? (interp-prim (PrimV 'equal?) (list left left) temp-store) #t)
+
+;; - equal? error
 (check-exn #rx"SHEQ: Incorrect number of arguments"
            (lambda () (interp-prim (PrimV 'equal?) (list 3) test-store)))
 
@@ -697,14 +728,37 @@
 (check-equal? (interp-prim (PrimV '++) '() test-store) "")
 (check-equal? (interp-prim (PrimV '++) (list (ArrayV 3 2)) test-store) "#<array>")
 
-;; PrimV 'make-array test
+;; PrimV 'make-array tests
 (check-equal? (interp-prim (PrimV 'make-array) (list 3 10) test-store) (ArrayV 1 3))
+
 
 (check-exn #rx"SHEQ: make-array expected size 1 or greater"
            (lambda () (interp-prim (PrimV 'make-array) (list 0 1) test-store)))
 
 (check-exn #rx"SHEQ: make-array expected a natural number for size"
            (lambda () (interp-prim (PrimV 'make-array) (list 2.4 1) test-store)))
+
+;; PrimV 'array tests
+
+(check-equal? (interp-prim (PrimV 'array) (list "a" "b" 3) test-store) (ArrayV 4 3))
+
+(check-exn #rx"SHEQ: array expected at least one element"
+           (lambda () (interp-prim (PrimV 'array) '() test-store)))
+
+;; PrimV 'aref tests
+(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 0) test-store) "a")
+
+(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 1 3) 2) test-store) 10)
+
+(check-exn #rx"SHEQ: aref expected an array"
+           (lambda () (interp-prim (PrimV 'aref) (list 23 23) test-store)))
+
+(check-exn #rx"SHEQ: aref expected an integer for index"
+           (lambda () (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 1.2) test-store)))
+
+(check-exn #rx"SHEQ: aref index out of bounds"
+           (lambda () (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 290192) test-store)))
+
 
 ;; ---- Helper Tests ----
 
