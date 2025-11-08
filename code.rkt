@@ -13,11 +13,11 @@
 (struct NullV () #:transparent)
 
 ;; RealV
-(struct RealV ([n : Real]))
+(struct RealV ([n : Real]) #:transparent)
 ;; StringV
-(struct StringV ([str : String]))
+(struct StringV ([str : String]) #:transparent)
 ;; BoolV
-(struct BoolV ([bool : Boolean]))
+(struct BoolV ([bool : Boolean]) #:transparent)
 
 ;; ArrayV - Array contains an address and a size, both of Natural types
 (struct ArrayV ([address : Natural] [size : Natural]) #:transparent)
