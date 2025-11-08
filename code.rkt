@@ -26,14 +26,14 @@
 ;; LamC - Lambdas contain a list of symbol args, and a body of ExprC
 (struct LamC ([args : (Listof Symbol)] [body : ExprC]) #:transparent)
 
-;; Binding : pair of a Symbol and a Value
-(struct Binding ([name : Symbol] [val : Value]) #:transparent)
+;; Binding : pair of a Symbol and a Natural address
+(struct Binding ([name : Symbol] [address : Natural]) #:transparent)
 
 ;; Env : a list of Bindings
 (define-type Env (Listof Binding))
 
 ;; ExprC type : NumC, IfC, IdC, AppC, LamC, StringC
-(define-type ExprC (U NumC IfC IdC AppC LamC StringC))
+(define-type ExprC (U NumC IfC IdC AppC LamC StringC MutateC))
 
 ;; NumC : a Real
 (struct NumC ([n : Real]) #:transparent)
@@ -50,29 +50,30 @@
 ;; AppC : Represents a function application.function ExprC with a list of arg ExprC's
 (struct AppC ([expr : ExprC] [args : (Listof ExprC)]) #:transparent)
 
+(struct MutateC ([id : Symbol] [expr : ExprC]) #:transparent)
 
-;; Top level environment
-(: top-env Env)
-(define top-env (list
-                 (Binding 'true #t)
-                 (Binding 'false #f)
-                 (Binding '+ (PrimV '+))
-                 (Binding '- (PrimV '-))
-                 (Binding '* (PrimV '*))
-                 (Binding '/ (PrimV '/))
-                 (Binding '<= (PrimV '<=))
-                 (Binding 'equal? (PrimV 'equal?))
-                 (Binding 'substring (PrimV 'substring))
-                 (Binding 'strlen (PrimV 'strlen))
-                 (Binding 'error (PrimV 'error))
-                 (Binding 'println (PrimV 'println))
-                 (Binding 'read-num (PrimV 'read-num))
-                 (Binding 'read-str (PrimV 'read-str))
-                 (Binding '++ (PrimV '++))
-                 (Binding 'make-array (PrimV 'make-array))
-                 (Binding 'array (PrimV 'array))
-                 (Binding 'aref (PrimV 'aref))
-                 (Binding 'aset! (PrimV 'aset!)))) 
+
+;; Top level environment definitions
+(define top-env-defs (list
+	(list 'true #t)
+    (list 'false #f)
+    (list '+ (PrimV '+))
+    (list '- (PrimV '-))
+    (list '* (PrimV '*))
+    (list '/ (PrimV '/))
+    (list '<= (PrimV '<=))
+    (list 'equal? (PrimV 'equal?))
+    (list 'substring (PrimV 'substring))
+    (list 'strlen (PrimV 'strlen))
+    (list 'error (PrimV 'error))
+    (list 'println (PrimV 'println))
+    (list 'read-num (PrimV 'read-num))
+    (list 'read-str (PrimV 'read-str))
+    (list '++ (PrimV '++))
+    (list 'make-array (PrimV 'make-array))
+    (list 'array (PrimV 'array))
+    (list 'aref (PrimV 'aref))
+    (list 'aset! (PrimV 'aset!)))) 
 
 ;; reserved-keywords - a list of key-words
 (define reserved-keywords '(if lambda let = in end : else))
@@ -81,7 +82,9 @@
 
 ;; top-interp - Parse and evaluate the S-exp, return a serialized String result
 (define (top-interp [s : Sexp] [memsize : Natural]) : String
-  (serialize (interp (parse s) top-env (make-initial-store memsize))))
+  (define store (make-initial-store memsize))
+  (define env (make-default-env store))
+  (serialize (interp (parse s) env store)))
 
 ;; interp - takes the complete AST (ExprC) with an Env, returning a Value
 (define (interp [e : ExprC] [env : Env] [store : (Vectorof Value)]) : Value
@@ -89,6 +92,7 @@
   #;(match e
       [numc -> number]
       [stringc -> s]
+	  [mutatec -> nullv]
       [ifc -> eval if expr]
       [LamC -> CloV params body env]
       [AppC -> interp CloV or PrimV]
@@ -98,6 +102,8 @@
   (match e
     [(NumC n) n]
     [(StringC s) s]
+	[(MutateC id expr) 
+	 (store-set! id (interp expr env store) env store)]
     [(IfC v if-t if-f)
      (define test-val (interp v env store))
      (cond
@@ -118,7 +124,11 @@
        [(CloV? f-val)
         (if (equal? (length arg-vals) (length (CloV-params f-val)))
             (interp (CloV-body f-val)
-                    (append (map Binding (CloV-params f-val) arg-vals)
+					; Append new Closure env
+                    (append (map (lambda ([id : Symbol] [v : Value]) 
+								   (Binding id (allocate store v))) 
+								 (CloV-params f-val) 
+								 arg-vals)
                             (CloV-env f-val))
                     store)
             (error 'interp "SHEQ: Incorrect number of arguments for CloV, got ~a expected ~a"
@@ -129,7 +139,7 @@
         (interp-prim f-val arg-vals store)]
        [else
         (error 'interp "SHEQ: Attempted to apply non function value ~a" f-val)])]         
-    [(IdC id) (get-binding-val id env)]))
+    [(IdC id) (store-get id env store)]))
 
 ;; interp-seq - takes a list of ExprC's to interpret them sequentially, returns the last expression's Value
 (define (interp-seq [exprs : (Listof ExprC)] [env : Env] [store : (Vectorof Value)]) : Value
@@ -260,7 +270,7 @@
 			; be stored
 			(define arr (ArrayV (+ 1 (next-address store)) len))
             (allocate store arr)
-            (allocate-lst store (for/list ([i (in-range len)] val))
+            (allocate-lst store (for/list ([i (in-range len)]) val))
             
             arr]
           [(and (natural? size) (< size 1))
@@ -323,6 +333,7 @@
       [number -> NumC]
       [string -> StringC]
       [not reserved symbol -> idc]
+	  [list 'id ':= expr -> mutatec]
       [list 'let ... -> AppC(LamC)]
       [list 'if ... -> IfC]
       [list 'lambda ... -> LamC]
@@ -339,6 +350,11 @@
      (if (reserved-symbol? name)
          (error 'parse "SHEQ: Syntax error, unexpected reserved keyword, got ~e" name)
          (IdC name))]
+	;; Match mutation
+	[(list (? symbol? id) ':= expr) 
+	 (if (reserved-symbol? id)
+		 (error 'parse "SHEQ: Syntax error, cannot mutate reserved symbol ~e" id)
+		 (MutateC id (parse expr)))]
     ;; Match Let
     [(list 'let 
            (list (list (? symbol? args) '= vals) ...) 
@@ -378,6 +394,7 @@
                         "true"
                         "false")]
     [(? string? s) (~v s)]
+	[(NullV) "null"]
     [(CloV _ _ _) "#<procedure>"]
     [(PrimV _) "#<primop>"]
     [(ArrayV addr size) (string-append "#<array>")]))
@@ -396,14 +413,14 @@
 
 ;; ---- Helper functions ----
 
-;; get-binding-val takes a symbol and enviornment, performs a lookup and returns an ExprC if found
-(define (get-binding-val [s : Symbol] [env : Env]) : Value
+;; get-binding takes a symbol and enviornment, performs a lookup and returns an ExprC if found
+(define (get-binding [s : Symbol] [env : Env]) : Natural
   (match env
-    ['() (error 'get-binding "SHEQ: An unbound identifier ~a" s)]
+    ['() (error 'get-binding "SHEQ: An unbound identifier ~a in env ~e" s env)]
     [(cons (Binding name val) r)
      (if (equal? s name)
          val
-         (get-binding-val s r))]))
+         (get-binding s r))]))
 
 ;; distinct-args? - returns true if every symbol in args is distinct 
 (define (distinct-args? [args : (Listof Symbol)]) : Boolean
@@ -416,7 +433,7 @@
       #f))
 
 ;; create-env - takes Listof Symbol, Listof Value, an Env, and returns a new Env
-(define (create-env [args : (Listof Symbol)] [vals : (Listof Value)] [env : Env]) : Env
+#;(define (create-env [args : (Listof Symbol)] [vals : (Listof Value)] [env : Env]) : Env
   (match* (args vals)
     [('() '()) env]
     [('() _) (error 'create-env "SHEQ: create-env received too many values were passed in application ~a ~a" args vals)]
@@ -426,9 +443,28 @@
 
 ;; make-initial-store - takes a Natural number size, returns a Vector of Values where index 0 is equal to 1
 (define (make-initial-store [size : Natural]) : (Vectorof Value)
-  (define stre : (Mutable-Vectorof Value) (make-vector size 0))
+  (define env-size (length top-env-defs))
+  (define stre : (Mutable-Vectorof Value) (make-vector (+ size env-size) 0))
   (vector-set! stre 0 1)
   stre)
+
+;; make-default-env - takes a Vector of Values and creates a list of Bindings for the top-env-defs list
+(define (make-default-env [stre : (Vectorof Value)]) : Env
+  (for/list ([bind top-env-defs])
+	(match bind [(list id val) (Binding id (allocate stre val))])))
+
+;; store-get - Given an id, env, and Vector of Values, returns the Value in the 
+;; Vector at the index defined by the env for the id.
+(define (store-get [id : Symbol] [env : Env] [stre : (Vectorof Value)]) : Value
+  (define addr (get-binding id env))
+  (vector-ref stre addr))
+
+;; store-set! - Given an id, new Value, env, and Vector of Values, sets the Value
+;; at the index defined by the env for the id.
+(define (store-set! [id : Symbol] [new-v : Value] [env : Env] [stre : (Vectorof Value)]) : NullV
+  (define addr (get-binding id env))
+  (vector-set! stre addr new-v)
+  (NullV))
 
 ;; allocate - takes a Vector of Values and a Value to store, returns the Natural pointer to the stored Value's address
 (define (allocate [stre : (Vectorof Value)] [val : Value]) : Natural
@@ -445,7 +481,7 @@
   (define next-free (next-address stre))
   (define new-free (+ next-free (length vals)))
   (if (>= new-free (vector-length stre))
-	  (error 'allocate-lst "SHEQ: Out of memory. Tries to allocate ~a cells for list ~a." (length vals) vals)
+	  (error 'allocate-lst "SHEQ: Out of memory. Tried to allocate ~a cells for list ~a in store." (length vals) vals)
 	  (for ([v vals]) (allocate stre v)))
   new-free)
 
@@ -521,67 +557,71 @@
                        100)))
 
 ;; ---- interp tests ----
-(define test-store (make-initial-store 100)) ; test-store is a store for the tests below
+(define make-test-store (lambda () (make-initial-store 100))) ; (make-test-store) is a store for the tests below
 
-(check-equal? (interp (IdC 'true) top-env test-store) #t)
+;; helper lambda for encapsulating store and env creation on interp
+(define test-interp (lambda ([expr : ExprC]) 
+					  (define store (make-test-store))
+					  (interp expr (make-default-env store) store)))
 
-(check-equal? (interp (NumC 89) top-env test-store) 89)
+(check-equal? (test-interp (IdC 'true)) #t)
 
-(check-equal? (interp (AppC (IdC '+) (list (NumC 8)
-                                           (AppC (IdC '*) (list (NumC 2) (NumC 3)))))
-                        top-env
-                        test-store)  14)
+(check-equal? (test-interp (NumC 89)) 89)
 
-(check-equal? (interp (AppC (IdC 'main) '()) (list (Binding 'main (CloV '() (NumC 5) '()))) test-store) 5)
+(check-equal? (test-interp (AppC (IdC '+) (list (NumC 8)
+                                           (AppC (IdC '*) (list (NumC 2) (NumC 3))))))  14)
 
-(check-equal? (interp (AppC (IdC 'someFunction) (list (NumC 3)))
+; Commenting out tests that rely on irregular environments w/o propper store setting in interp
+#;(check-equal? (interp (AppC (IdC 'main) '()) (list (Binding 'main (CloV '() (NumC 5) '()))) (make-test-store)) 5)
+
+#;(check-equal? (interp (AppC (IdC 'someFunction) (list (NumC 3)))
                       (list (Binding 'someFunction
                                      (CloV '(x)
                                            (AppC (IdC '*) (list (NumC 10) (IdC 'x)))
                                            top-env
-                                           ))) test-store) 30)
+                                           ))) (make-test-store)) 30)
 
-(check-equal? (interp (AppC (IdC '<=) (list (NumC 9) (NumC 10))) top-env test-store) #t)
+(check-equal? (test-interp (AppC (IdC '<=) (list (NumC 9) (NumC 10)))) #t)
 
-(check-equal? (interp (AppC (IdC 'equal?) (list (NumC 9) (NumC 10))) top-env test-store) #f)
+(check-equal? (test-interp (AppC (IdC 'equal?) (list (NumC 9) (NumC 10)))) #f)
 
-(check-equal? (interp (AppC (IdC 'equal?) (list (NumC 9) (NumC 10))) top-env test-store) #f)
+(check-equal? (test-interp (AppC (IdC 'equal?) (list (NumC 9) (NumC 10)))) #f)
 
-(check-equal? (interp (IfC (AppC (IdC '<=) (list (NumC 5) (NumC 2))) (NumC 1) (NumC -1)) top-env test-store) -1)
+(check-equal? (test-interp (IfC (AppC (IdC '<=) (list (NumC 5) (NumC 2))) (NumC 1) (NumC -1))) -1)
 
-(check-equal? (interp (AppC (LamC '(x) (AppC (IdC '+) (list (IdC 'x) (NumC 1))))
-                            (list (NumC 5))) top-env test-store) 6)
+(check-equal? (test-interp (AppC (LamC '(x) (AppC (IdC '+) (list (IdC 'x) (NumC 1))))
+                            (list (NumC 5)))) 6)
 
-(check-equal? (interp (IfC (AppC (IdC 'equal?) (list (NumC 81) (NumC 81)))
-                           (IdC 'true) (IdC 'false)) top-env test-store) #t)
+(check-equal? (test-interp (IfC (AppC (IdC 'equal?) (list (NumC 81) (NumC 81)))
+                           (IdC 'true) (IdC 'false))) #t)
 
 ;; interp with seq
 (check-exn #rx"SHEQ: seq needs at least 1 expression."
-           (lambda () (interp (AppC (IdC 'seq) '()) top-env test-store)))
+           (lambda () (test-interp (AppC (IdC 'seq) '()))))
 
 
 ;; ---- interp error check ---- 
-(check-exn #rx"SHEQ: An unbound identifier" (lambda () (interp (IdC 'x) '() test-store)))
+(check-exn #rx"SHEQ: An unbound identifier" (lambda () (test-interp (IdC 'x))))
 
 (check-exn #rx"SHEQ: PrimV \\+ expected 2 numbers"
-           (lambda () (interp (AppC (IdC '+) (list (IdC '-) (NumC 4))) top-env test-store)))
+           (lambda () (test-interp (AppC (IdC '+) (list (IdC '-) (NumC 4))))))
 
 (check-exn #rx"SHEQ: Divide by zero error"
-           (lambda () (interp (AppC (IdC '/) (list (NumC 5) (NumC 0))) top-env test-store)))
+           (lambda () (test-interp (AppC (IdC '/) (list (NumC 5) (NumC 0))))))
 
 (check-exn #rx"SHEQ: If expected boolean test"
-           (lambda () (interp (parse '{if 32 23 32}) top-env test-store)))
+           (lambda () (test-interp (parse '{if 32 23 32}))))
 
 (check-exn #rx"SHEQ: \\+ received incorrect number of arguments, expected 2, got"
            (lambda ()
-             (interp (AppC (LamC '(x)
+             (test-interp (AppC (LamC '(x)
                                  (AppC (IdC '+) (list (IdC 'x) (NumC 1) (NumC 2))))
                            (list (NumC 5)))
-                     top-env test-store)))
+                    )))
 
 (check-exn #rx"SHEQ: Attempted to apply non function value"
            (lambda ()
-             (interp (AppC (NumC 9) (list (NumC 12))) top-env test-store)))
+             (test-interp (AppC (NumC 9) (list (NumC 12))))))
 
 
 
@@ -589,11 +629,11 @@
 (check-equal? (serialize '32) "32")
 (check-equal? (serialize #f) "false")
 (check-equal? (serialize #t) "true")
-(check-equal? (serialize (CloV '(x) (NumC 34) top-env)) "#<procedure>")
+(check-equal? (serialize (CloV '(x) (NumC 34) (list (Binding 'fake 100)))) "#<procedure>")
 (check-equal? (serialize (PrimV '<=)) "#<primop>")
 (check-equal? (serialize (ArrayV 2 12)) "#<array>")
 
-(check-exn #rx"SHEQ: user-error true" (lambda () (interp-prim (PrimV 'error) (list #t) test-store)))
+(check-exn #rx"SHEQ: user-error true" (lambda () (interp-prim (PrimV 'error) (list #t) (make-test-store))))
 
 
 ;; ---- parse Tests ----
@@ -641,56 +681,56 @@
 (check-exn #rx"SHEQ: Syntax error, unexpected reserved keyword, got" (lambda () (parse '=)))
 
 
-;; ---- intperp-prim Tests ----
+;; ---- interp-prim Tests ----
 ;; PrimV '+ tests
-(check-equal? (interp-prim (PrimV '+) (list 8 9) test-store) 17)
+(check-equal? (interp-prim (PrimV '+) (list 8 9) (make-test-store)) 17)
 (check-exn #rx"SHEQ: PrimV \\+ expected 2 numbers, got"
-           (lambda () (interp-prim (PrimV '+) (list 8 #t) test-store)))
+           (lambda () (interp-prim (PrimV '+) (list 8 #t) (make-test-store))))
 (check-exn #rx"SHEQ: \\+ received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV '+) (list 8 23 3 2) test-store)))
+           (lambda () (interp-prim (PrimV '+) (list 8 23 3 2) (make-test-store))))
 
 ;; PrimV '* tests
-(check-equal? (interp-prim (PrimV '*) (list 8 4) test-store) 32)
+(check-equal? (interp-prim (PrimV '*) (list 8 4) (make-test-store)) 32)
 (check-exn #rx"SHEQ: PrimV \\* expected 2 numbers, got"
-           (lambda () (interp-prim (PrimV '*) (list #f #t) test-store)))
+           (lambda () (interp-prim (PrimV '*) (list #f #t) (make-test-store))))
 (check-exn #rx"SHEQ: \\* received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV '*) (list 2) test-store)))
+           (lambda () (interp-prim (PrimV '*) (list 2) (make-test-store))))
 
 ;; PrimV '/ tests
-(check-equal? (interp-prim (PrimV '/) (list 33 11) test-store) 3)
+(check-equal? (interp-prim (PrimV '/) (list 33 11) (make-test-store)) 3)
 (check-exn #rx"SHEQ: PrimV \\/ expected 2 numbers, got"
-           (lambda () (interp-prim (PrimV '/) (list #f #t) test-store)))
+           (lambda () (interp-prim (PrimV '/) (list #f #t) (make-test-store))))
 (check-exn #rx"SHEQ: Divide by zero error"
-           (lambda () (interp-prim (PrimV '/) (list 3 0) test-store))) 
+           (lambda () (interp-prim (PrimV '/) (list 3 0) (make-test-store)))) 
 (check-exn #rx"SHEQ: \\/ received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV '/) (list 21 2 3) test-store)))
+           (lambda () (interp-prim (PrimV '/) (list 21 2 3) (make-test-store))))
 
 ;; PrimV '- tests
-(check-equal? (interp-prim (PrimV '-) (list 33 11) test-store) 22)
+(check-equal? (interp-prim (PrimV '-) (list 33 11) (make-test-store)) 22)
 (check-exn #rx"SHEQ: PrimV \\- expected 2 numbers, got"
-           (lambda () (interp-prim (PrimV '-) (list #f #t) test-store)))
+           (lambda () (interp-prim (PrimV '-) (list #f #t) (make-test-store))))
 (check-exn #rx"SHEQ: \\- received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV '-) (list 9 3 2 1 3) test-store)))
+           (lambda () (interp-prim (PrimV '-) (list 9 3 2 1 3) (make-test-store))))
 
 ;; PrimV '<= tests
-(check-equal? (interp-prim (PrimV '<=) (list 3 11) test-store) #t)
-(check-equal? (interp-prim (PrimV '<=) (list 3 -11) test-store) #f)
+(check-equal? (interp-prim (PrimV '<=) (list 3 11) (make-test-store)) #t)
+(check-equal? (interp-prim (PrimV '<=) (list 3 -11) (make-test-store)) #f)
 (check-exn #rx"SHEQ: PrimV \\<= expected 2 numbers, got"
-           (lambda () (interp-prim (PrimV '<=) (list #f #t) test-store)))
+           (lambda () (interp-prim (PrimV '<=) (list #f #t) (make-test-store))))
 (check-exn #rx"SHEQ: \\<= received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV '<=) (list 3) test-store)))
+           (lambda () (interp-prim (PrimV '<=) (list 3) (make-test-store))))
 
 ;; PrimV 'equal? tests
-(check-equal? (interp-prim (PrimV 'equal?) (list 9 9) test-store) #t)
-(check-equal? (interp-prim (PrimV 'equal?) (list #f #f) test-store) #t)
-(check-equal? (interp-prim (PrimV 'equal?) (list "hi" "hi") test-store) #t)
-(check-equal? (interp-prim (PrimV 'equal?) (list 3 #f) test-store) #f)
+(check-equal? (interp-prim (PrimV 'equal?) (list 9 9) (make-test-store)) #t)
+(check-equal? (interp-prim (PrimV 'equal?) (list #f #f) (make-test-store)) #t)
+(check-equal? (interp-prim (PrimV 'equal?) (list "hi" "hi") (make-test-store)) #t)
+(check-equal? (interp-prim (PrimV 'equal?) (list 3 #f) (make-test-store)) #f)
 (check-equal? (interp-prim (PrimV 'equal?)
                            (list (CloV '(x) (NumC 1) '()) (CloV '(x) (NumC 1) '()))
-                           test-store) #f)
+                           (make-test-store)) #f)
 (check-equal? (interp-prim (PrimV 'equal?)
                            (list (PrimV '-) (PrimV '-))
-                           test-store) #f)
+                           (make-test-store)) #f)
 
 ;; - equal? array test
 (define temp-store (make-initial-store 20))
@@ -701,134 +741,140 @@
 
 ;; - equal? error
 (check-exn #rx"SHEQ: equal\\? received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV 'equal?) (list 3) test-store)))
+           (lambda () (interp-prim (PrimV 'equal?) (list 3) (make-test-store))))
 
 ;; PrimV 'substring tests
-(check-equal? (interp-prim (PrimV 'substring) (list "hello world!" 0 5) test-store) "hello")
+(check-equal? (interp-prim (PrimV 'substring) (list "hello world!" 0 5) (make-test-store)) "hello")
 (check-exn #rx"SHEQ: substring needs string and 2 valid natural indices"
-           (lambda () (interp-prim (PrimV 'substring) (list "hello" 99 1) test-store)))
+           (lambda () (interp-prim (PrimV 'substring) (list "hello" 99 1) (make-test-store))))
 (check-exn #rx"SHEQ: substring received incorrect number of arguments, expected 3"
-           (lambda () (interp-prim (PrimV 'substring) (list "bib" 0 1 23 3) test-store)))
+           (lambda () (interp-prim (PrimV 'substring) (list "bib" 0 1 23 3) (make-test-store))))
 
 ;; PrimV 'strlen tests
-(check-equal? (interp-prim (PrimV 'strlen) (list "hello world!") test-store) 12)
-(check-exn #rx"SHEQ: Syntax error" (lambda () (interp-prim (PrimV 'strlen) (list 3) test-store)))
+(check-equal? (interp-prim (PrimV 'strlen) (list "hello world!") (make-test-store)) 12)
+(check-exn #rx"SHEQ: Syntax error" (lambda () (interp-prim (PrimV 'strlen) (list 3) (make-test-store))))
 (check-exn #rx"SHEQ: strlen received incorrect number of arguments, expected 1"
-           (lambda () (interp-prim (PrimV 'strlen) (list "bib" "five" 3) test-store)))
+           (lambda () (interp-prim (PrimV 'strlen) (list "bib" "five" 3) (make-test-store))))
 
 ;; PrimV 'error test
 (check-exn #rx"SHEQ: error received incorrect number of arguments, expected 1"
-           (lambda () (interp-prim (PrimV 'error) (list "This" "too many") test-store)))
+           (lambda () (interp-prim (PrimV 'error) (list "This" "too many") (make-test-store))))
 
 ;; PrimV invalid PrimV test
 (check-exn #rx"SHEQ: Invalid PrimV op"
-           (lambda () (interp-prim (PrimV 'dothis) (list 9) test-store)))
+           (lambda () (interp-prim (PrimV 'dothis) (list 9) (make-test-store))))
 
 ;; PrimV 'println tests
-(check-equal? (interp-prim (PrimV 'println) (list "test: Hello World from interp") test-store) #t)
+(check-equal? (interp-prim (PrimV 'println) (list "test: Hello World from interp") (make-test-store)) #t)
 
 (check-exn #rx"SHEQ: Attempted to print a non-string value"
            (lambda ()
-             (interp-prim (PrimV 'println) (list 5) test-store)))
+             (interp-prim (PrimV 'println) (list 5) (make-test-store))))
 (check-exn #rx"SHEQ: println received incorrect number of arguments"
            (lambda ()
-             (interp-prim (PrimV 'println) (list "a" "c") test-store)))
+             (interp-prim (PrimV 'println) (list "a" "c") (make-test-store))))
 
 
 ;; PrimV 'read-num test
 (check-equal? (with-input-from-string "52\n"
-                (lambda () (interp-prim (PrimV 'read-num) '() test-store))) 52)
+                (lambda () (interp-prim (PrimV 'read-num) '() (make-test-store)))) 52)
 
 (check-exn #rx"SHEQ: read-num expected a Number"
            (lambda () 
              (with-input-from-string "five"
-               (lambda () (interp-prim (PrimV 'read-num) '() test-store)))))
+               (lambda () (interp-prim (PrimV 'read-num) '() (make-test-store))))))
 
 (check-exn #rx"SHEQ: read-num read EOF"
            (lambda () 
              (with-input-from-string ""
-               (lambda () (interp-prim (PrimV 'read-num) '() test-store)))))
+               (lambda () (interp-prim (PrimV 'read-num) '() (make-test-store))))))
 
 (check-exn #rx"SHEQ: read-num received incorrect number of arguments"
-           (lambda () (interp-prim (PrimV 'read-num) (list 4 2 1) test-store)))
+           (lambda () (interp-prim (PrimV 'read-num) (list 4 2 1) (make-test-store))))
 
 ;; PrimV 'read-str tests
 (check-equal? (with-input-from-string "hello\n"
-                (lambda () (interp-prim (PrimV 'read-str) '() test-store))) "hello")
+                (lambda () (interp-prim (PrimV 'read-str) '() (make-test-store)))) "hello")
 
 (check-exn #rx"SHEQ: read-str received incorrect number of arguments"
-           (lambda () (interp-prim (PrimV 'read-str) (list "s" "b" "c") test-store)))
+           (lambda () (interp-prim (PrimV 'read-str) (list "s" "b" "c") (make-test-store))))
 
 (check-exn #rx"SHEQ: read-str read EOF"
            (lambda () 
              (with-input-from-string ""
-               (lambda () (interp-prim (PrimV 'read-str) '() test-store)))))
+               (lambda () (interp-prim (PrimV 'read-str) '() (make-test-store))))))
 
 ;; PrimV '++ tests
-(check-equal? (interp-prim (PrimV '++) (list 4 "hello" #f) test-store) "4hellofalse")
-(check-equal? (interp-prim (PrimV '++) '() test-store) "")
-(check-equal? (interp-prim (PrimV '++) (list (ArrayV 3 2)) test-store) "#<array>")
+(check-equal? (interp-prim (PrimV '++) (list 4 "hello" #f) (make-test-store)) "4hellofalse")
+(check-equal? (interp-prim (PrimV '++) '() (make-test-store)) "")
+(check-equal? (interp-prim (PrimV '++) (list (ArrayV 3 2)) (make-test-store)) "#<array>")
 
 ;; PrimV 'make-array tests
 
-;; test-store[1] = ArrayV of size 3 of all 10's
-(check-equal? (interp-prim (PrimV 'make-array) (list 3 10) test-store) (ArrayV 2 3))
+;; (make-test-store)[1] = ArrayV of size 3 of all 10's
+(check-equal? (interp-prim (PrimV 'make-array) (list 3 10) (make-test-store)) (ArrayV 2 3))
 
 (check-exn #rx"SHEQ: Out of memory"
-           (lambda () (interp-prim (PrimV 'make-array) (list 1000000 1) test-store)))
+           (lambda () (interp-prim (PrimV 'make-array) (list 1000000 1) (make-test-store))))
 
 (check-exn #rx"SHEQ: make-array expected size 1 or greater"
-           (lambda () (interp-prim (PrimV 'make-array) (list 0 1) test-store)))
+           (lambda () (interp-prim (PrimV 'make-array) (list 0 1) (make-test-store))))
 
 (check-exn #rx"SHEQ: make-array expected a natural number for size"
-           (lambda () (interp-prim (PrimV 'make-array) (list 2.4 1) test-store)))
+           (lambda () (interp-prim (PrimV 'make-array) (list 2.4 1) (make-test-store))))
 
 (check-exn #rx"SHEQ: make-array received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV 'make-array) (list 2.3) test-store)))
+           (lambda () (interp-prim (PrimV 'make-array) (list 2.3) (make-test-store))))
 
 ;; PrimV 'array tests
 
-;; test-store[4] = ArrayV of size 3 of all {"a", "b", 3}
-(check-equal? (interp-prim (PrimV 'array) (list "a" "b" 3) test-store) (ArrayV 2 3))
+;; (make-test-store)[4] = ArrayV of size 3 of all {"a", "b", 3}
+(check-equal? (interp-prim (PrimV 'array) (list "a" "b" 3) (make-test-store)) (ArrayV 2 3))
 
 (check-exn #rx"SHEQ: array expected at least one element"
-           (lambda () (interp-prim (PrimV 'array) '() test-store)))
+           (lambda () (interp-prim (PrimV 'array) '() (make-test-store))))
 
 ;; PrimV 'aref tests
-(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 0) test-store) "a")
+(define aref-store (make-initial-store 20))
+(interp-prim (PrimV 'array) (list "a" "b" "c") aref-store)
+(interp-prim (PrimV 'array) (list 10 20 30) aref-store)
+(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 2 3) 0) aref-store) "a")
 
-(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 1 3) 2) test-store) 10)
+(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 5 3) 2) aref-store) 20)
 
 (check-exn #rx"SHEQ: aref expected an array"
-           (lambda () (interp-prim (PrimV 'aref) (list 23 23) test-store)))
+           (lambda () (interp-prim (PrimV 'aref) (list 23 23) aref-store)))
 
 (check-exn #rx"SHEQ: aref expected an integer for index"
-           (lambda () (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 1.2) test-store)))
+           (lambda () (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 1.2) aref-store)))
 
 (check-exn #rx"SHEQ: aref index out of bounds"
-           (lambda () (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 290192) test-store)))
+           (lambda () (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 290192) aref-store)))
 
 (check-exn #rx"SHEQ: aref received incorrect number of arguments, expected 2, got"
-           (lambda () (interp-prim (PrimV 'aref) (list 3 2 3 23 32 32) test-store)))
+           (lambda () (interp-prim (PrimV 'aref) (list 3 2 3 23 32 32) aref-store)))
 
 ;; PrimV 'aset! tests
+(define aset!-store (make-initial-store 20))
+(interp-prim (PrimV 'array) (list "a" "b" "c") aset!-store)
+(interp-prim (PrimV 'array) (list 10 20 30) aset!-store)
 
-;; test-store : [7, 10, 10, 10, "a", "b, 3, _, _, ...]
-(check-equal? (interp-prim (PrimV 'aset!) (list (ArrayV 1 3) 0 "changed") test-store) (NullV))
+;; (make-test-store) : [7, 10, 10, 10, "a", "b, 3, _, _, ...]
+(check-equal? (interp-prim (PrimV 'aset!) (list (ArrayV 2 3) 0 "changed") aset!-store) (NullV))
 ;; after      : [7, "changed", 10, 10, "a", "b, 3, _, _, ...]
-(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 1 3) 0) test-store) "changed")
+(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 2 3) 0) aset!-store) "changed")
 
 (check-exn #rx"SHEQ: aset! expected an array"
-           (lambda () (interp-prim (PrimV 'aset!) (list "notarray" 23 1) test-store)))
+           (lambda () (interp-prim (PrimV 'aset!) (list "notarray" 23 1) aset!-store)))
 
 (check-exn #rx"SHEQ: aset! expected an integer for index"
-           (lambda () (interp-prim (PrimV 'aset!) (list (ArrayV 4 3) "parry" 1) test-store)))
+           (lambda () (interp-prim (PrimV 'aset!) (list (ArrayV 4 3) "parry" 1) aset!-store)))
 
 (check-exn #rx"SHEQ: aset! index out of bounds"
-           (lambda () (interp-prim (PrimV 'aset!) (list (ArrayV 4 3) -12 "bear") test-store)))
+           (lambda () (interp-prim (PrimV 'aset!) (list (ArrayV 4 3) -12 "bear") aset!-store)))
 
 (check-exn #rx"SHEQ: aset! received incorrect number of arguments, expected 3, got"
-           (lambda () (interp-prim (PrimV 'aset!) (list 0 0) test-store)))
+           (lambda () (interp-prim (PrimV 'aset!) (list 0 0) aset!-store)))
 
 ;; ---- Helper Tests ----
 
@@ -837,7 +883,7 @@
 (check-equal? (val->string #t) "true")
 (check-equal? (val->string #f) "false")
 (check-equal? (val->string "s") "s")
-(check-equal? (val->string (CloV '(x) (NumC 4) top-env)) "#<procedure>")
+(check-equal? (val->string (CloV '(x) (NumC 4) (list (Binding 'fake 100)))) "#<procedure>")
 (check-equal? (val->string (PrimV '+)) "#<primop>")
 (check-equal? (val->string (ArrayV 5 4)) "#<array>")
 
@@ -850,31 +896,41 @@
 (check-equal? (reserved-symbol? '+++) #f)
 
 ;; create-env tests
-(check-equal? (create-env (list 'a) (list 5) (list (Binding 'random 314)))
+#;(check-equal? (create-env (list 'a) (list 5) (list (Binding 'random 314)))
               (list (Binding 'a 5) (Binding 'random 314)))
-(check-exn #rx"SHEQ: create-env received too many values were passed in application"
+#;(check-exn #rx"SHEQ: create-env received too many values were passed in application"
            (lambda () (create-env (list 'a) (list 5 3 4) (list (Binding 'random 314)))))
-(check-exn #rx"SHEQ: create-env received too few values were passed in application"
+#;(check-exn #rx"SHEQ: create-env received too few values were passed in application"
            (lambda () (create-env (list 'a 'x) (list 4) (list (Binding 'random 314)))))
 
 ;; get-binding tests
-(check-equal? (get-binding-val 'sym (list (Binding 'sym 5))) 5)
-(check-exn #rx"SHEQ: An unbound identifier" (lambda () (get-binding-val 'sym '())))
+(check-equal? (get-binding 'sym (list (Binding 'sym 5))) 5)
+(check-exn #rx"SHEQ: An unbound identifier" (lambda () (get-binding 'sym '())))
 
 
 ;; make-initial-store tests
-(check-equal? (make-initial-store 4) '#(1 0 0 0))
-(check-equal? (vector-length (make-initial-store 10)) 10)
+(check-equal? (vector-length (make-initial-store 10)) (+ 10 (length top-env-defs)))
 (check-equal? (vector-ref (make-initial-store 102) 0) 1)
+
+;; make-default-env & store-get & store-set tests
+(define mde-store (make-initial-store 10))
+(define mde-env (make-default-env mde-store))
+
+(check-equal? (store-get 'true mde-env mde-store) #t)
+(store-set! 'true 1 mde-env mde-store)
+(check-equal? (store-get 'true mde-env mde-store) 1)
 
 ;; allocate tests
 (check-equal? (allocate (make-initial-store 12) 3) 1)
 
-(define st (make-initial-store 10))
-(check-equal? (allocate st 3) 1)
+(define st (make-initial-store 20))
+(check-equal? (allocate-lst st (list 1 2 3)) 4)
 (check-equal? (vector-ref st 0) 4)
-(check-equal? (allocate st 2) 4)
-(check-equal? (vector-ref st 0) 6)
+(check-equal? (allocate-lst st (list 1 2 3 4 5 6 7)) 11)
+(check-equal? (vector-ref st 0) 11)
 
-(check-exn #rx"SHEQ: Out of memory. Tried to allocate" (lambda () (allocate (make-initial-store 2) 3)))
+(define allo-err-store (make-initial-store 2))
+; Populate the store with default env so that it doesn't have blank extra space
+(make-default-env allo-err-store)
+(check-exn #rx"SHEQ: Out of memory. Tried to allocate" (lambda () (allocate-lst allo-err-store (list 1 2 3))))
 
