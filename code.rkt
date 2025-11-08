@@ -8,23 +8,18 @@
 
 ;; Value - Numbers, Booleans, String, CloV, PrimV, ArrayV, NullV
 (define-type Value (U Real Boolean String CloV PrimV ArrayV NullV))
-
 ;; NullV - contains nothing
 (struct NullV () #:transparent)
-
 ;; RealV
 (struct RealV ([n : Real]) #:transparent)
 ;; StringV
 (struct StringV ([str : String]) #:transparent)
 ;; BoolV
 (struct BoolV ([bool : Boolean]) #:transparent)
-
-;; ArrayV - Array contains an address and a size, both of Natural types
+;; ArrayV - Array contains and an address and a size, both of Natural types
 (struct ArrayV ([address : Natural] [size : Natural]) #:transparent)
-
 ;; CloV - Closures contain list of symbol params, body of ExprC, Env
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : Env]) #:transparent)
-
 ;; PrimV - Represents a primitive operator by its symbol
 (struct PrimV ([op : Symbol]) #:transparent)
  
@@ -259,13 +254,15 @@
        [(list size val)
         (cond
           [(and (natural? size) (>= size 1))
-            (define len (inexact->exact size))
-            (define arr (make-vector len val))
-            (define addr (allocate store len))
-            (for ([i (in-range len)])
-              (vector-set! store (+ addr i) val))
+			(define len (inexact->exact size))
+			; Shouldn't make vectors. Should just create ArrayV
+			; Sets the address to the address after where this array will
+			; be stored
+			(define arr (ArrayV (+ 1 (next-address store)) len))
+            (allocate store arr)
+            (allocate-lst store (for/list ([i (in-range len)] val))
             
-            (ArrayV addr len)]
+            arr]
           [(and (natural? size) (< size 1))
            (error 'interp-prim "SHEQ: make-array expected size 1 or greater, got ~a" size)]
           [(not (natural? size))
@@ -277,10 +274,10 @@
        ['() (error 'interp-prim "SHEQ: array expected at least one element, got ~a" args)]
        [_
         (define len (length args))
-        (define addr (allocate store len))
-        (for ([i (in-range len)] [v args])
-          (vector-set! store (+ addr i) v))
-        (ArrayV addr len)])]
+		(define arr (ArrayV (+ 1 (next-address store)) len))
+        (allocate store arr)
+        (allocate-lst store args)
+        arr])]
     ['aref
      (match args
        [(list arr index)
@@ -294,7 +291,8 @@
                   index
                   (ArrayV-size arr))]
           [else
-           (vector-ref store (cast (+ (ArrayV-address arr) index) Nonnegative-Integer))])]
+			; Add the index to the array's address and return that value in the store
+           (vector-ref store (assert (+ index (ArrayV-address arr)) natural?))])]
        [_ (error 'interp-prim "SHEQ: aref received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['aset!
      (match args
@@ -310,7 +308,7 @@
                   index
                   (ArrayV-size arr))]
           [else
-           (vector-set! store (cast (+ (ArrayV-address arr) index) Nonnegative-Integer) val)
+           (vector-set! store (assert (+ index (ArrayV-address arr)) natural?) val)
            (NullV)])]
        [_ (error 'interp-prim "SHEQ: aset! received incorrect number of arguments, expected 3, got ~a" (length args))])]
     [_
@@ -432,17 +430,28 @@
   (vector-set! stre 0 1)
   stre)
 
-;; allocate - takes a Vector of Values and a Natural number size, returns a Natural pointer to which the Value was stored
-(define (allocate [stre : (Vectorof Value)] [n : Natural]): Natural
-  (define next-free (assert (vector-ref stre 0) natural?))
-  (define new-free (+ next-free n))
-  (if (>= new-free (vector-length stre))
-      (error 'allocate "SHEQ: Out of memory. Tried to allocate ~a cells, but only ~a are left."
-             n
-             (- (vector-length stre) next-free))
-      (vector-set! stre 0 new-free))
+;; allocate - takes a Vector of Values and a Value to store, returns the Natural pointer to the stored Value's address
+(define (allocate [stre : (Vectorof Value)] [val : Value]) : Natural
+  (define next-free (next-address stre))
+  (if (>= next-free (vector-length stre))
+	  (error 'allocate "SHEQ: Out of memory. Tried to allocate space for ~a." val)
+	  (vector-set! stre next-free val))
+  ; Update next free location in store
+  (vector-set! stre 0 (+ 1 next-free))
   next-free)
 
+;; allocate-lst - takes a Vector of Values and a list of Values to store, returns a Natural pointer to the last stored Value's address
+(define (allocate-lst [stre : (Vectorof Value)] [vals : (Listof Value)]) : Natural
+  (define next-free (next-address stre))
+  (define new-free (+ next-free (length vals)))
+  (if (>= new-free (vector-length stre))
+	  (error 'allocate-lst "SHEQ: Out of memory. Tries to allocate ~a cells for list ~a." (length vals) vals)
+	  (for ([v vals]) (allocate stre v)))
+  new-free)
+
+;; next-address - takes a Store and returns the next store address (index 0 of the store)
+(define (next-address [stre : (Vectorof Value)]) : Natural
+  (assert (vector-ref stre 0) natural?))
 
 ;; ---- Tests ----
 
@@ -763,7 +772,7 @@
 ;; PrimV 'make-array tests
 
 ;; test-store[1] = ArrayV of size 3 of all 10's
-(check-equal? (interp-prim (PrimV 'make-array) (list 3 10) test-store) (ArrayV 1 3))
+(check-equal? (interp-prim (PrimV 'make-array) (list 3 10) test-store) (ArrayV 2 3))
 
 (check-exn #rx"SHEQ: Out of memory"
            (lambda () (interp-prim (PrimV 'make-array) (list 1000000 1) test-store)))
@@ -780,7 +789,7 @@
 ;; PrimV 'array tests
 
 ;; test-store[4] = ArrayV of size 3 of all {"a", "b", 3}
-(check-equal? (interp-prim (PrimV 'array) (list "a" "b" 3) test-store) (ArrayV 4 3))
+(check-equal? (interp-prim (PrimV 'array) (list "a" "b" 3) test-store) (ArrayV 2 3))
 
 (check-exn #rx"SHEQ: array expected at least one element"
            (lambda () (interp-prim (PrimV 'array) '() test-store)))
