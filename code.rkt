@@ -6,10 +6,11 @@
 
 ;; Data definitions
 
-;; Value - Numbers, Booleans, String, CloV, PrimV
-(define-type Value (U Real Boolean String CloV PrimV ArrayV))
+;; Value - Numbers, Booleans, String, CloV, PrimV, ArrayV, NullV
+(define-type Value (U Real Boolean String CloV PrimV ArrayV NullV))
 
-;; NullV?
+;; NullV - contains nothing
+(struct NullV () #:transparent)
 
 ;; RealV
 (struct RealV ([n : Real]))
@@ -20,7 +21,6 @@
 
 ;; ArrayV - Array contains an address and a size, both of Natural types
 (struct ArrayV ([address : Natural] [size : Natural]) #:transparent)
-
 
 ;; CloV - Closures contain list of symbol params, body of ExprC, Env
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : Env]) #:transparent)
@@ -153,21 +153,21 @@
         (cond
           [(and (real? a) (real? b)) (+ a b)]
           [else (error 'interp-prim "SHEQ: PrimV + expected 2 numbers, got ~a" args)])]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments")])]
+       [_ (error 'interp-prim "SHEQ: + received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['*
      (match args
        [(list a b)
         (cond
           [(and (real? a) (real? b)) (* a b)]
           [else (error 'interp-prim "SHEQ: PrimV * expected 2 numbers, got ~a" args)])]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments")])]
+       [_ (error 'interp-prim "SHEQ: * received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['-
      (match args
        [(list a b)
         (cond
           [(and (real? a) (real? b)) (- a b)]
           [else (error 'interp-prim "SHEQ: PrimV - expected 2 numbers, got ~a" args)])]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments")])]
+       [_ (error 'interp-prim "SHEQ: - received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['/
      (match args
        [(list a b)
@@ -176,20 +176,20 @@
           [(and (real? a) (real? b) (equal? b 0))
            (error 'interp-prim "SHEQ: Divide by zero error")]
           [else (error 'interp-prim "SHEQ: PrimV / expected 2 numbers, got ~a" args)])]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments")])]
+       [_ (error 'interp-prim "SHEQ: / received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['<=
      (match args
        [(list a b)
         (cond
           [(and (real? a) (real? b)) (<= a b)]
           [else (error 'interp-prim "SHEQ: PrimV <= expected 2 numbers, got ~a" args)])]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments")])]
+       [_ (error 'interp-prim "SHEQ: <= received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['equal?
      (match args
        [(list a b)
         (cond [(or (CloV? a) (CloV? b) (PrimV? a) (PrimV? b)) #f]
               [else (equal? a b)])]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments")])]
+       [_ (error 'interp-prim "SHEQ: equal? received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['substring
      (match args
        [(list s start stop)
@@ -203,20 +203,20 @@
                 (< stop (string-length s)))
            (substring s (inexact->exact start) (inexact->exact stop))]
           [else
-           (error 'interp-prim "SHEQ: Substring needs string and 2 valid natural indices, got ~a" args)])]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments, expected 3, got ~a" (length args))])]
+           (error 'interp-prim "SHEQ: substring needs string and 2 valid natural indices, got ~a" args)])]
+       [_ (error 'interp-prim "SHEQ: substring received incorrect number of arguments, expected 3, got ~a" (length args))])]
     ['strlen
      (match args
        [(list s)
         (if (string? s)
             (string-length s)
             (error 'interp-prim "SHEQ: Syntax error, ~a is not a string" s))]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments, expected 1, got ~a" (length args))])]
+       [_ (error 'interp-prim "SHEQ: strlen received incorrect number of arguments, expected 1, got ~a" (length args))])]
     ['error
      (match args
        [(list v)
         (error 'interp-prim "SHEQ: user-error ~a" (serialize v))]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments, expected 1, got ~a" (length args))])]
+       [_ (error 'interp-prim "SHEQ: error received incorrect number of arguments, expected 1, got ~a" (length args))])]
     ['println
      (match args
        [(list s)
@@ -225,13 +225,12 @@
               (displayln s)
               #t)
             (error 'interp-prim "SHEQ: Attempted to print a non-string value, got ~a" s))]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments, expected 1, got ~a" (length args))])]
+       [_ (error 'interp-prim "SHEQ: println received incorrect number of arguments, expected 1, got ~a" (length args))])]
     ['read-num
      (match args
        ['()
         (begin
           (display "> ")
-          ;; (flush-output)
           (define input (read-line))
           (cond
             [(eof-object? input)
@@ -241,18 +240,17 @@
              (if (real? num)
                  num
                  (error 'interp-prim "SHEQ: read-num expected a Number, got ~a" input))]))]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments, expected 0, got ~a" (length args))])]
+       [_ (error 'interp-prim "SHEQ: read-num received incorrect number of arguments, expected 0, got ~a" (length args))])]
     ['read-str
      (match args
        ['()
         (begin
           (display "> ")
-          ;; (flush-output)
           (define input (read-line))
           (if (eof-object? input)
               (error 'interp-prim "SHEQ: read-str read EOF")
               input))]
-       [_ (error 'interp-prim "SHEQ: Incorrect number of arguments, expected 0, got ~a" (length args))])]
+       [_ (error 'interp-prim "SHEQ: read-str received incorrect number of arguments, expected 0, got ~a" (length args))])]
     ['++
      (match args
        ['() ""]
@@ -273,7 +271,8 @@
            (error 'interp-prim "SHEQ: make-array expected size 1 or greater, got ~a" size)]
           [(not (natural? size))
            (error 'interp-prim "SHEQ: make-array expected a natural number for size, got ~a" size)]
-          )])]
+          )]
+       [_ (error 'interp-prim "SHEQ: make-array received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['array
      (match args
        ['() (error 'interp-prim "SHEQ: array expected at least one element, got ~a" args)]
@@ -296,10 +295,27 @@
                   index
                   (ArrayV-size arr))]
           [else
-           (vector-ref store (cast (+ (ArrayV-address arr) index) Nonnegative-Integer)) ])])]
+           (vector-ref store (cast (+ (ArrayV-address arr) index) Nonnegative-Integer))])]
+       [_ (error 'interp-prim "SHEQ: aref received incorrect number of arguments, expected 2, got ~a" (length args))])]
+    ['aset!
+     (match args
+       [(list arr index val)
+        (cond
+          [(not (ArrayV? arr))
+           (error 'interp-prim "SHEQ: aset! expected an array, got ~a" arr)]
+          [(not (integer? index))
+           (error 'interp-prim "SHEQ: aset! expected an integer for index, got ~a" index)]
+          
+          [(or (< index 0) (>= index (ArrayV-size arr)))
+           (error 'interp-prim "SHEQ: aset! index out of bounds. ~a index for array of size ~a"
+                  index
+                  (ArrayV-size arr))]
+          [else
+           (vector-set! store (cast (+ (ArrayV-address arr) index) Nonnegative-Integer) val)
+           (NullV)])]
+       [_ (error 'interp-prim "SHEQ: aset! received incorrect number of arguments, expected 3, got ~a" (length args))])]
     [_
      (error 'interp-prim "SHEQ: Invalid PrimV op, got ~a" args)]))
-
 
 
 ;; ---- Parser ---- 
@@ -531,7 +547,7 @@
 (check-exn #rx"SHEQ: If expected boolean test"
            (lambda () (interp (parse '{if 32 23 32}) top-env test-store)))
 
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: \\+ received incorrect number of arguments, expected 2, got"
            (lambda ()
              (interp (AppC (LamC '(x)
                                  (AppC (IdC '+) (list (IdC 'x) (NumC 1) (NumC 2))))
@@ -605,14 +621,14 @@
 (check-equal? (interp-prim (PrimV '+) (list 8 9) test-store) 17)
 (check-exn #rx"SHEQ: PrimV \\+ expected 2 numbers, got"
            (lambda () (interp-prim (PrimV '+) (list 8 #t) test-store)))
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: \\+ received incorrect number of arguments, expected 2, got"
            (lambda () (interp-prim (PrimV '+) (list 8 23 3 2) test-store)))
 
 ;; PrimV '* tests
 (check-equal? (interp-prim (PrimV '*) (list 8 4) test-store) 32)
 (check-exn #rx"SHEQ: PrimV \\* expected 2 numbers, got"
            (lambda () (interp-prim (PrimV '*) (list #f #t) test-store)))
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: \\* received incorrect number of arguments, expected 2, got"
            (lambda () (interp-prim (PrimV '*) (list 2) test-store)))
 
 ;; PrimV '/ tests
@@ -621,14 +637,14 @@
            (lambda () (interp-prim (PrimV '/) (list #f #t) test-store)))
 (check-exn #rx"SHEQ: Divide by zero error"
            (lambda () (interp-prim (PrimV '/) (list 3 0) test-store))) 
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: \\/ received incorrect number of arguments, expected 2, got"
            (lambda () (interp-prim (PrimV '/) (list 21 2 3) test-store)))
 
 ;; PrimV '- tests
 (check-equal? (interp-prim (PrimV '-) (list 33 11) test-store) 22)
 (check-exn #rx"SHEQ: PrimV \\- expected 2 numbers, got"
            (lambda () (interp-prim (PrimV '-) (list #f #t) test-store)))
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: \\- received incorrect number of arguments, expected 2, got"
            (lambda () (interp-prim (PrimV '-) (list 9 3 2 1 3) test-store)))
 
 ;; PrimV '<= tests
@@ -636,7 +652,7 @@
 (check-equal? (interp-prim (PrimV '<=) (list 3 -11) test-store) #f)
 (check-exn #rx"SHEQ: PrimV \\<= expected 2 numbers, got"
            (lambda () (interp-prim (PrimV '<=) (list #f #t) test-store)))
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: \\<= received incorrect number of arguments, expected 2, got"
            (lambda () (interp-prim (PrimV '<=) (list 3) test-store)))
 
 ;; PrimV 'equal? tests
@@ -659,24 +675,24 @@
 (check-equal? (interp-prim (PrimV 'equal?) (list left left) temp-store) #t)
 
 ;; - equal? error
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: equal\\? received incorrect number of arguments, expected 2, got"
            (lambda () (interp-prim (PrimV 'equal?) (list 3) test-store)))
 
 ;; PrimV 'substring tests
 (check-equal? (interp-prim (PrimV 'substring) (list "hello world!" 0 5) test-store) "hello")
-(check-exn #rx"SHEQ: Substring needs string and 2 valid natural indices"
+(check-exn #rx"SHEQ: substring needs string and 2 valid natural indices"
            (lambda () (interp-prim (PrimV 'substring) (list "hello" 99 1) test-store)))
-(check-exn #rx"SHEQ: Incorrect number of arguments, expected 3"
+(check-exn #rx"SHEQ: substring received incorrect number of arguments, expected 3"
            (lambda () (interp-prim (PrimV 'substring) (list "bib" 0 1 23 3) test-store)))
 
 ;; PrimV 'strlen tests
 (check-equal? (interp-prim (PrimV 'strlen) (list "hello world!") test-store) 12)
 (check-exn #rx"SHEQ: Syntax error" (lambda () (interp-prim (PrimV 'strlen) (list 3) test-store)))
-(check-exn #rx"SHEQ: Incorrect number of arguments, expected 1"
+(check-exn #rx"SHEQ: strlen received incorrect number of arguments, expected 1"
            (lambda () (interp-prim (PrimV 'strlen) (list "bib" "five" 3) test-store)))
 
 ;; PrimV 'error test
-(check-exn #rx"SHEQ: Incorrect number of arguments, expected 1"
+(check-exn #rx"SHEQ: error received incorrect number of arguments, expected 1"
            (lambda () (interp-prim (PrimV 'error) (list "This" "too many") test-store)))
 
 ;; PrimV invalid PrimV test
@@ -689,7 +705,7 @@
 (check-exn #rx"SHEQ: Attempted to print a non-string value"
            (lambda ()
              (interp-prim (PrimV 'println) (list 5) test-store)))
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: println received incorrect number of arguments"
            (lambda ()
              (interp-prim (PrimV 'println) (list "a" "c") test-store)))
 
@@ -708,14 +724,14 @@
              (with-input-from-string ""
                (lambda () (interp-prim (PrimV 'read-num) '() test-store)))))
 
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: read-num received incorrect number of arguments"
            (lambda () (interp-prim (PrimV 'read-num) (list 4 2 1) test-store)))
 
 ;; PrimV 'read-str tests
 (check-equal? (with-input-from-string "hello\n"
                 (lambda () (interp-prim (PrimV 'read-str) '() test-store))) "hello")
 
-(check-exn #rx"SHEQ: Incorrect number of arguments"
+(check-exn #rx"SHEQ: read-str received incorrect number of arguments"
            (lambda () (interp-prim (PrimV 'read-str) (list "s" "b" "c") test-store)))
 
 (check-exn #rx"SHEQ: read-str read EOF"
@@ -729,7 +745,11 @@
 (check-equal? (interp-prim (PrimV '++) (list (ArrayV 3 2)) test-store) "#<array>")
 
 ;; PrimV 'make-array tests
+
+;; test-store[1] = ArrayV of size 3 of all 10's
 (check-equal? (interp-prim (PrimV 'make-array) (list 3 10) test-store) (ArrayV 1 3))
+
+
 
 
 (check-exn #rx"SHEQ: make-array expected size 1 or greater"
@@ -738,8 +758,12 @@
 (check-exn #rx"SHEQ: make-array expected a natural number for size"
            (lambda () (interp-prim (PrimV 'make-array) (list 2.4 1) test-store)))
 
+(check-exn #rx"SHEQ: make-array received incorrect number of arguments, expected 2, got"
+           (lambda () (interp-prim (PrimV 'make-array) (list 2.3) test-store)))
+
 ;; PrimV 'array tests
 
+;; test-store[4] = ArrayV of size 3 of all {"a", "b", 3}
 (check-equal? (interp-prim (PrimV 'array) (list "a" "b" 3) test-store) (ArrayV 4 3))
 
 (check-exn #rx"SHEQ: array expected at least one element"
@@ -759,6 +783,27 @@
 (check-exn #rx"SHEQ: aref index out of bounds"
            (lambda () (interp-prim (PrimV 'aref) (list (ArrayV 4 3) 290192) test-store)))
 
+(check-exn #rx"SHEQ: aref received incorrect number of arguments, expected 2, got"
+           (lambda () (interp-prim (PrimV 'aref) (list 3 2 3 23 32 32) test-store)))
+
+;; PrimV 'aset! tests
+
+;; test-store : [7, 10, 10, 10, "a", "b, 3, _, _, ...]
+(check-equal? (interp-prim (PrimV 'aset!) (list (ArrayV 1 3) 0 "changed") test-store) (NullV))
+;; after      : [7, "changed", 10, 10, "a", "b, 3, _, _, ...]
+(check-equal? (interp-prim (PrimV 'aref) (list (ArrayV 1 3) 0) test-store) "changed")
+
+(check-exn #rx"SHEQ: aset! expected an array"
+           (lambda () (interp-prim (PrimV 'aset!) (list "notarray" 23 1) test-store)))
+
+(check-exn #rx"SHEQ: aset! expected an integer for index"
+           (lambda () (interp-prim (PrimV 'aset!) (list (ArrayV 4 3) "parry" 1) test-store)))
+
+(check-exn #rx"SHEQ: aset! index out of bounds"
+           (lambda () (interp-prim (PrimV 'aset!) (list (ArrayV 4 3) -12 "bear") test-store)))
+
+(check-exn #rx"SHEQ: aset! received incorrect number of arguments, expected 3, got"
+           (lambda () (interp-prim (PrimV 'aset!) (list 0 0) test-store)))
 
 ;; ---- Helper Tests ----
 
@@ -769,6 +814,7 @@
 (check-equal? (val->string "s") "s")
 (check-equal? (val->string (CloV '(x) (NumC 4) top-env)) "#<procedure>")
 (check-equal? (val->string (PrimV '+)) "#<primop>")
+(check-equal? (val->string (ArrayV 5 4)) "#<array>")
 
 ;; distinct-args? tests
 (check-equal? (distinct-args? '(x y z)) #t)
