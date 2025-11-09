@@ -440,7 +440,7 @@
 (define (make-initial-store [size : Natural]) : (Vectorof Value)
   (define env-size (length top-env-defs))
   (define stre : (Mutable-Vectorof Value) (make-vector (+ size env-size) 0))
-  (vector-set! stre 0 1)
+  (vector-set! stre (ann 0 Natural) 1)
   stre)
 
 ;; make-default-env - takes a Vector of Values and creates a list of Bindings for the top-env-defs list
@@ -467,9 +467,9 @@
 
   (if (>= next-free (vector-length stre))
       (error 'allocate "SHEQ: Out of memory. Tried to allocate space for ~a." val)
-      (vector-set! stre next-free val))
+      (vector-set! stre (ann next-free Natural) val))
   ; Update next free location in store
-  (vector-set! stre 0 (+ 1 next-free))
+  (vector-set! stre (ann 0 Natural) (+ 1 next-free))
   next-free)
 
 ;; allocate-lst - takes a Vector of Values and a list of Values to store, returns a Natural pointer to the last stored Value's address
@@ -483,7 +483,7 @@
 
 ;; next-address - takes a Store and returns the next store address (index 0 of the store)
 (define (next-address [stre : (Vectorof Value)]) : Natural
-  (assert (vector-ref stre 0) natural?))
+  (assert (vector-ref stre (ann 0 Natural)) natural?))
 
 
 
@@ -1021,7 +1021,7 @@
 
 ;; make-initial-store tests
 (check-equal? (vector-length (make-initial-store 10)) (+ 10 (length top-env-defs)))
-(check-equal? (vector-ref (make-initial-store 102) 0) 1)
+(check-equal? (vector-ref (make-initial-store 102) (ann 0 Natural)) 1)
 
 ;; store-get tests
 (define mde-store (make-initial-store 100))
