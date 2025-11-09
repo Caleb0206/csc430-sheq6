@@ -503,7 +503,7 @@
 
 ;; ---- Tests ----
 ;; while : SHEQ implementation of the while loop
-(define sheq-while '{let {[while = "undefined"]}
+(define while '{let {[while = "undefined"]}
                       in
                       {seq
                        {while :=
@@ -523,13 +523,17 @@
                               {println {++ "" x}}
                               {x := {+ x 1}}}}}
                           x}
-                         end}}
+                         end}
+                       }
                       end})
 
-(check-equal? (top-interp sheq-while 100) "3")
+
+(check-equal? (top-interp while 100) "3")
+
+
 
 ;; in-order : accepts an array of numbers and its size, returns true if array is increasing order
-(define sheq-in-order
+(define in-order
   '{let {[while = "undefined"]
          [in-order = "undefined"]
          [not = {lambda (b) : {if b false true}}]
@@ -562,7 +566,7 @@
       {in-order {array 1 2 3} 3}}
      end})
 
-(check-equal? (top-interp sheq-in-order 599) "true")
+(check-equal? (top-interp in-order 599) "true")
 
 ;; Large test
 ; The program calculates two areas using two different functions, and then compares them.
