@@ -93,6 +93,7 @@
   #;(match e
       [numc -> number]
       [stringc -> s]
+      [nullC -> nullV]
       [mutatec -> nullv]
       [ifc -> eval if expr]
       [LamC -> CloV params body env]
@@ -332,6 +333,7 @@
   #;(match e
       [number -> NumC]
       [string -> StringC]
+      ['null -> NullC]
       [not reserved symbol -> idc]
       [list 'id ':= expr -> mutatec]
       [list 'let ... -> AppC(LamC)]
@@ -433,15 +435,6 @@
   (if (memq s reserved-keywords)
       #t
       #f))
-
-;; create-env - takes Listof Symbol, Listof Value, an Env, and returns a new Env
-#;(define (create-env [args : (Listof Symbol)] [vals : (Listof Value)] [env : Env]) : Env
-    (match* (args vals)
-      [('() '()) env]
-      [('() _) (error 'create-env "SHEQ: create-env received too many values were passed in application ~a ~a" args vals)]
-      [(_ '()) (error 'create-env "SHEQ: create-env received too few values were passed in application ~a ~a" args vals)]
-      [((cons fa ra) (cons fv rv))
-       (create-env ra rv (cons (Binding fa fv) env))]))
 
 ;; make-initial-store - takes a Natural number size, returns a Vector of Values where index 0 is equal to 1
 (define (make-initial-store [size : Natural]) : (Vectorof Value)
@@ -657,16 +650,6 @@
 
 (check-equal? (test-interp (AppC (IdC '+) (list (NumC 8)
                                                 (AppC (IdC '*) (list (NumC 2) (NumC 3))))))  14)
-
-; Commenting out tests that rely on irregular environments w/o propper store setting in interp
-#;(check-equal? (interp (AppC (IdC 'main) '()) (list (Binding 'main (CloV '() (NumC 5) '()))) (make-test-store)) 5)
-
-#;(check-equal? (interp (AppC (IdC 'someFunction) (list (NumC 3)))
-                        (list (Binding 'someFunction
-                                       (CloV '(x)
-                                             (AppC (IdC '*) (list (NumC 10) (IdC 'x)))
-                                             top-env
-                                             ))) (make-test-store)) 30)
 
 (check-equal? (test-interp (AppC (IdC '<=) (list (NumC 9) (NumC 10)))) #t)
 
@@ -1006,15 +989,6 @@
 ;; reserved-symbol tests
 (check-equal? (reserved-symbol? 'lambda) #t)
 (check-equal? (reserved-symbol? '+++) #f)
-
-;; create-env tests
-#;(check-equal? (create-env (list 'a) (list 5) (list (Binding 'random 314)))
-                (list (Binding 'a 5) (Binding 'random 314)))
-#;(check-exn #rx"SHEQ: create-env received too many values were passed in application"
-             (lambda () (create-env (list 'a) (list 5 3 4) (list (Binding 'random 314)))))
-#;(check-exn #rx"SHEQ: create-env received too few values were passed in application"
-             (lambda () (create-env (list 'a 'x) (list 4) (list (Binding 'random 314)))))
-
 
 ;; make-default-env tests
 (check-equal? (make-default-env (make-initial-store 20))
