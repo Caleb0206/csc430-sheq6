@@ -8,18 +8,16 @@
 
 ;; Value - Numbers, Booleans, String, CloV, PrimV, ArrayV, NullV
 (define-type Value (U Real Boolean String CloV PrimV ArrayV NullV))
+
 ;; NullV - contains nothing
 (struct NullV () #:transparent)
-;; RealV
-(struct RealV ([n : Real]) #:transparent)
-;; StringV
-(struct StringV ([str : String]) #:transparent)
-;; BoolV
-(struct BoolV ([bool : Boolean]) #:transparent)
+
 ;; ArrayV - Array contains and an address and a size, both of Natural types
 (struct ArrayV ([address : Natural] [size : Natural]) #:transparent)
+
 ;; CloV - Closures contain list of symbol params, body of ExprC, Env
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : Env]) #:transparent)
+
 ;; PrimV - Represents a primitive operator by its symbol
 (struct PrimV ([op : Symbol]) #:transparent)
  
@@ -32,8 +30,8 @@
 ;; Env : a list of Bindings
 (define-type Env (Listof Binding))
 
-;; ExprC type : NumC, IfC, IdC, AppC, LamC, StringC
-(define-type ExprC (U NumC IfC IdC AppC LamC StringC MutateC))
+;; ExprC type : NumC, IfC, IdC, AppC, LamC, StringC, MutateC, NullC
+(define-type ExprC (U NumC IfC IdC AppC LamC StringC MutateC NullC))
 
 ;; NumC : a Real
 (struct NumC ([n : Real]) #:transparent)
@@ -50,30 +48,33 @@
 ;; AppC : Represents a function application.function ExprC with a list of arg ExprC's
 (struct AppC ([expr : ExprC] [args : (Listof ExprC)]) #:transparent)
 
+;; MutateC : A mutation of symbol id to an ExprC expr
 (struct MutateC ([id : Symbol] [expr : ExprC]) #:transparent)
 
+;; NullC : Null
+(struct NullC () #:transparent)
 
 ;; Top level environment definitions
 (define top-env-defs (list
-	(list 'true #t)
-    (list 'false #f)
-    (list '+ (PrimV '+))
-    (list '- (PrimV '-))
-    (list '* (PrimV '*))
-    (list '/ (PrimV '/))
-    (list '<= (PrimV '<=))
-    (list 'equal? (PrimV 'equal?))
-    (list 'substring (PrimV 'substring))
-    (list 'strlen (PrimV 'strlen))
-    (list 'error (PrimV 'error))
-    (list 'println (PrimV 'println))
-    (list 'read-num (PrimV 'read-num))
-    (list 'read-str (PrimV 'read-str))
-    (list '++ (PrimV '++))
-    (list 'make-array (PrimV 'make-array))
-    (list 'array (PrimV 'array))
-    (list 'aref (PrimV 'aref))
-    (list 'aset! (PrimV 'aset!)))) 
+                      (list 'true #t)
+                      (list 'false #f)
+                      (list '+ (PrimV '+))
+                      (list '- (PrimV '-))
+                      (list '* (PrimV '*))
+                      (list '/ (PrimV '/))
+                      (list '<= (PrimV '<=))
+                      (list 'equal? (PrimV 'equal?))
+                      (list 'substring (PrimV 'substring))
+                      (list 'strlen (PrimV 'strlen))
+                      (list 'error (PrimV 'error))
+                      (list 'println (PrimV 'println))
+                      (list 'read-num (PrimV 'read-num))
+                      (list 'read-str (PrimV 'read-str))
+                      (list '++ (PrimV '++))
+                      (list 'make-array (PrimV 'make-array))
+                      (list 'array (PrimV 'array))
+                      (list 'aref (PrimV 'aref))
+                      (list 'aset! (PrimV 'aset!)))) 
 
 ;; reserved-keywords - a list of key-words
 (define reserved-keywords '(if lambda let = in end : else))
@@ -92,7 +93,7 @@
   #;(match e
       [numc -> number]
       [stringc -> s]
-	  [mutatec -> nullv]
+      [mutatec -> nullv]
       [ifc -> eval if expr]
       [LamC -> CloV params body env]
       [AppC -> interp CloV or PrimV]
@@ -102,8 +103,9 @@
   (match e
     [(NumC n) n]
     [(StringC s) s]
-	[(MutateC id expr) 
-	 (store-set! id (interp expr env store) env store)]
+    [(NullC) (NullV)]
+    [(MutateC id expr) 
+     (store-set! id (interp expr env store) env store)]
     [(IfC v if-t if-f)
      (define test-val (interp v env store))
      (cond
@@ -124,11 +126,11 @@
        [(CloV? f-val)
         (if (equal? (length arg-vals) (length (CloV-params f-val)))
             (interp (CloV-body f-val)
-					; Append new Closure env
+                    ; Append new Closure env
                     (append (map (lambda ([id : Symbol] [v : Value]) 
-								   (Binding id (allocate store v))) 
-								 (CloV-params f-val) 
-								 arg-vals)
+                                   (Binding id (allocate store v))) 
+                                 (CloV-params f-val) 
+                                 arg-vals)
                             (CloV-env f-val))
                     store)
             (error 'interp "SHEQ: Incorrect number of arguments for CloV, got ~a expected ~a"
@@ -264,15 +266,13 @@
        [(list size val)
         (cond
           [(and (natural? size) (>= size 1))
-			(define len (inexact->exact size))
-			; Shouldn't make vectors. Should just create ArrayV
-			; Sets the address to the address after where this array will
-			; be stored
-			(define arr (ArrayV (+ 1 (next-address store)) len))
-            (allocate store arr)
-            (allocate-lst store (for/list ([i (in-range len)]) val))
-            
-            arr]
+           (define len (inexact->exact size))
+           ; Shouldn't make vectors. Should just create ArrayV
+           ; Sets the address to the address after where this array will be stored
+           (define arr (ArrayV (+ 1 (next-address store)) len))
+           (allocate store arr)
+           (allocate-lst store (for/list ([i (in-range len)]) val))
+           arr]
           [(and (natural? size) (< size 1))
            (error 'interp-prim "SHEQ: make-array expected size 1 or greater, got ~a" size)]
           [(not (natural? size))
@@ -284,7 +284,7 @@
        ['() (error 'interp-prim "SHEQ: array expected at least one element, got ~a" args)]
        [_
         (define len (length args))
-		(define arr (ArrayV (+ 1 (next-address store)) len))
+        (define arr (ArrayV (+ 1 (next-address store)) len))
         (allocate store arr)
         (allocate-lst store args)
         arr])]
@@ -301,7 +301,7 @@
                   index
                   (ArrayV-size arr))]
           [else
-			; Add the index to the array's address and return that value in the store
+           ; Add the index to the array's address and return that value in the store
            (vector-ref store (assert (+ index (ArrayV-address arr)) natural?))])]
        [_ (error 'interp-prim "SHEQ: aref received incorrect number of arguments, expected 2, got ~a" (length args))])]
     ['aset!
@@ -333,7 +333,7 @@
       [number -> NumC]
       [string -> StringC]
       [not reserved symbol -> idc]
-	  [list 'id ':= expr -> mutatec]
+      [list 'id ':= expr -> mutatec]
       [list 'let ... -> AppC(LamC)]
       [list 'if ... -> IfC]
       [list 'lambda ... -> LamC]
@@ -345,16 +345,18 @@
     [(? real? n) (NumC n)]
     ;; Match String
     [(? string? s) (StringC s)]
+    ;; Match Null
+    ['null (NullC)]
     ;; Match Id
     [(? symbol? name)
      (if (reserved-symbol? name)
          (error 'parse "SHEQ: Syntax error, unexpected reserved keyword, got ~e" name)
          (IdC name))]
-	;; Match mutation
-	[(list (? symbol? id) ':= expr) 
-	 (if (reserved-symbol? id)
-		 (error 'parse "SHEQ: Syntax error, cannot mutate reserved symbol ~e" id)
-		 (MutateC id (parse expr)))]
+    ;; Match mutation
+    [(list (? symbol? id) ':= expr) 
+     (if (reserved-symbol? id)
+         (error 'parse "SHEQ: Syntax error, cannot mutate reserved keyword, ~e" id)
+         (MutateC id (parse expr)))]
     ;; Match Let
     [(list 'let 
            (list (list (? symbol? args) '= vals) ...) 
@@ -394,7 +396,7 @@
                         "true"
                         "false")]
     [(? string? s) (~v s)]
-	[(NullV) "null"]
+    [(NullV) "null"]
     [(CloV _ _ _) "#<procedure>"]
     [(PrimV _) "#<primop>"]
     [(ArrayV addr size) (string-append "#<array>")]))
@@ -434,12 +436,12 @@
 
 ;; create-env - takes Listof Symbol, Listof Value, an Env, and returns a new Env
 #;(define (create-env [args : (Listof Symbol)] [vals : (Listof Value)] [env : Env]) : Env
-  (match* (args vals)
-    [('() '()) env]
-    [('() _) (error 'create-env "SHEQ: create-env received too many values were passed in application ~a ~a" args vals)]
-    [(_ '()) (error 'create-env "SHEQ: create-env received too few values were passed in application ~a ~a" args vals)]
-    [((cons fa ra) (cons fv rv))
-     (create-env ra rv (cons (Binding fa fv) env))]))
+    (match* (args vals)
+      [('() '()) env]
+      [('() _) (error 'create-env "SHEQ: create-env received too many values were passed in application ~a ~a" args vals)]
+      [(_ '()) (error 'create-env "SHEQ: create-env received too few values were passed in application ~a ~a" args vals)]
+      [((cons fa ra) (cons fv rv))
+       (create-env ra rv (cons (Binding fa fv) env))]))
 
 ;; make-initial-store - takes a Natural number size, returns a Vector of Values where index 0 is equal to 1
 (define (make-initial-store [size : Natural]) : (Vectorof Value)
@@ -451,7 +453,7 @@
 ;; make-default-env - takes a Vector of Values and creates a list of Bindings for the top-env-defs list
 (define (make-default-env [stre : (Vectorof Value)]) : Env
   (for/list ([bind top-env-defs])
-	(match bind [(list id val) (Binding id (allocate stre val))])))
+    (match bind [(list id val) (Binding id (allocate stre val))])))
 
 ;; store-get - Given an id, env, and Vector of Values, returns the Value in the 
 ;; Vector at the index defined by the env for the id.
@@ -469,9 +471,10 @@
 ;; allocate - takes a Vector of Values and a Value to store, returns the Natural pointer to the stored Value's address
 (define (allocate [stre : (Vectorof Value)] [val : Value]) : Natural
   (define next-free (next-address stre))
+  ;(printf "Allocating at ~a for value ~a\n" next-free val)
   (if (>= next-free (vector-length stre))
-	  (error 'allocate "SHEQ: Out of memory. Tried to allocate space for ~a." val)
-	  (vector-set! stre next-free val))
+      (error 'allocate "SHEQ: Out of memory. Tried to allocate space for ~a." val)
+      (vector-set! stre next-free val))
   ; Update next free location in store
   (vector-set! stre 0 (+ 1 next-free))
   next-free)
@@ -481,13 +484,15 @@
   (define next-free (next-address stre))
   (define new-free (+ next-free (length vals)))
   (if (>= new-free (vector-length stre))
-	  (error 'allocate-lst "SHEQ: Out of memory. Tried to allocate ~a cells for list ~a in store." (length vals) vals)
-	  (for ([v vals]) (allocate stre v)))
+      (error 'allocate-lst "SHEQ: Out of memory. Tried to allocate ~a cells for list ~a in store." (length vals) vals)
+      (for ([v vals]) (allocate stre v)))
   new-free)
 
 ;; next-address - takes a Store and returns the next store address (index 0 of the store)
 (define (next-address [stre : (Vectorof Value)]) : Natural
   (assert (vector-ref stre 0) natural?))
+
+
 
 ;; ---- Tests ----
 
@@ -546,6 +551,48 @@
                               {aref arr3 0}}
                              end} 100) "20")
 
+;; - top-interp with mutations
+
+(check-equal? (top-interp '{let {[x = 33]}
+                             in
+                             {seq
+                              {x := "changed"}
+                              x}
+                             end} 15)
+              "\"changed\"")
+
+(check-equal? (top-interp '{let {[fact = "bogus"]}
+                             in
+                             {seq
+                              {fact := {lambda {x} : {if {equal? x 0} 1 {* x {fact {- x 1}}}}}}
+                              {fact 2}}
+                             end} 100) "2")
+
+(define sheq-while '{let {[while = "undefined"]}
+                      in
+                      {seq
+                       {while :=
+                              {lambda {condition body} :
+                                {if {condition}
+                                    {seq
+                                     {body}
+                                     {while condition body}}
+                                    null}}}
+                       {let {[x = 0]}
+                         in
+                         {seq
+                          {while
+                           {lambda (): {<= x 2}}
+                           {lambda () : 
+                                 {seq
+                                  {println {++ "" x}}
+                                  {x := {+ x 1}}}}}
+                          x}
+                         end}}
+                      end})
+
+(check-equal? (top-interp sheq-while 100) "3")
+
 ;; - incorect num of arguments (from handin)
 (check-exn #rx"SHEQ: Incorrect number of arguments for CloV"
            (lambda () (top-interp '{{lambda () : 19} 17} 100)))
@@ -561,25 +608,27 @@
 
 ;; helper lambda for encapsulating store and env creation on interp
 (define test-interp (lambda ([expr : ExprC]) 
-					  (define store (make-test-store))
-					  (interp expr (make-default-env store) store)))
+                      (define store (make-test-store))
+                      (interp expr (make-default-env store) store)))
+
+(check-equal? (test-interp (NullC)) (NullV))
 
 (check-equal? (test-interp (IdC 'true)) #t)
 
 (check-equal? (test-interp (NumC 89)) 89)
 
 (check-equal? (test-interp (AppC (IdC '+) (list (NumC 8)
-                                           (AppC (IdC '*) (list (NumC 2) (NumC 3))))))  14)
+                                                (AppC (IdC '*) (list (NumC 2) (NumC 3))))))  14)
 
 ; Commenting out tests that rely on irregular environments w/o propper store setting in interp
 #;(check-equal? (interp (AppC (IdC 'main) '()) (list (Binding 'main (CloV '() (NumC 5) '()))) (make-test-store)) 5)
 
 #;(check-equal? (interp (AppC (IdC 'someFunction) (list (NumC 3)))
-                      (list (Binding 'someFunction
-                                     (CloV '(x)
-                                           (AppC (IdC '*) (list (NumC 10) (IdC 'x)))
-                                           top-env
-                                           ))) (make-test-store)) 30)
+                        (list (Binding 'someFunction
+                                       (CloV '(x)
+                                             (AppC (IdC '*) (list (NumC 10) (IdC 'x)))
+                                             top-env
+                                             ))) (make-test-store)) 30)
 
 (check-equal? (test-interp (AppC (IdC '<=) (list (NumC 9) (NumC 10)))) #t)
 
@@ -590,10 +639,21 @@
 (check-equal? (test-interp (IfC (AppC (IdC '<=) (list (NumC 5) (NumC 2))) (NumC 1) (NumC -1))) -1)
 
 (check-equal? (test-interp (AppC (LamC '(x) (AppC (IdC '+) (list (IdC 'x) (NumC 1))))
-                            (list (NumC 5)))) 6)
+                                 (list (NumC 5)))) 6)
 
 (check-equal? (test-interp (IfC (AppC (IdC 'equal?) (list (NumC 81) (NumC 81)))
-                           (IdC 'true) (IdC 'false))) #t)
+                                (IdC 'true) (IdC 'false))) #t)
+
+
+(check-equal? (test-interp (AppC
+                            (LamC '(x)
+                                  (AppC
+                                   (IdC 'seq)
+                                   (list
+                                    (MutateC 'x (StringC "changed")) (IdC 'x))))
+                            (list (NumC 33))))
+              "changed")
+
 
 ;; interp with seq
 (check-exn #rx"SHEQ: seq needs at least 1 expression."
@@ -615,13 +675,16 @@
 (check-exn #rx"SHEQ: \\+ received incorrect number of arguments, expected 2, got"
            (lambda ()
              (test-interp (AppC (LamC '(x)
-                                 (AppC (IdC '+) (list (IdC 'x) (NumC 1) (NumC 2))))
-                           (list (NumC 5)))
-                    )))
+                                      (AppC (IdC '+) (list (IdC 'x) (NumC 1) (NumC 2))))
+                                (list (NumC 5)))
+                          )))
 
 (check-exn #rx"SHEQ: Attempted to apply non function value"
            (lambda ()
              (test-interp (AppC (NumC 9) (list (NumC 12))))))
+
+(check-exn #rx"SHEQ: An unbound identifier"
+           (lambda () (test-interp (MutateC 'x (StringC "notlet")))))
 
 
 
@@ -632,6 +695,7 @@
 (check-equal? (serialize (CloV '(x) (NumC 34) (list (Binding 'fake 100)))) "#<procedure>")
 (check-equal? (serialize (PrimV '<=)) "#<primop>")
 (check-equal? (serialize (ArrayV 2 12)) "#<array>")
+(check-equal? (serialize (NullV)) "null")
 
 (check-exn #rx"SHEQ: user-error true" (lambda () (interp-prim (PrimV 'error) (list #t) (make-test-store))))
 
@@ -660,6 +724,10 @@
 (check-equal? (parse '{if {<= 3 90} 3 90})
               (IfC (AppC (IdC '<=) (list (NumC 3) (NumC 90))) (NumC 3) (NumC 90)))
 
+(check-equal? (parse '{x := 2}) (MutateC 'x (NumC 2)))
+
+(check-equal? (parse 'null) (NullC))
+
 
 ;; parse errors
 (check-exn #rx"SHEQ: Lambda args list is invalid, duplicate parameters found"
@@ -678,7 +746,13 @@
 (check-exn #rx"SHEQ: Syntax error, unexpected reserved keyword, got"
            (lambda () (parse '{end 3 4 3 2})))
 
-(check-exn #rx"SHEQ: Syntax error, unexpected reserved keyword, got" (lambda () (parse '=)))
+(check-exn #rx"SHEQ: Syntax error, unexpected reserved keyword, got"
+           (lambda () (parse '=)))
+
+(check-exn #rx"SHEQ: Syntax error, cannot mutate reserved keyword"
+           (lambda () (parse '{let := "notlet"})))
+
+
 
 
 ;; ---- interp-prim Tests ----
@@ -722,6 +796,7 @@
 
 ;; PrimV 'equal? tests
 (check-equal? (interp-prim (PrimV 'equal?) (list 9 9) (make-test-store)) #t)
+(check-equal? (interp-prim (PrimV 'equal?) (list (NullV) (NullV)) (make-test-store)) #t)
 (check-equal? (interp-prim (PrimV 'equal?) (list #f #f) (make-test-store)) #t)
 (check-equal? (interp-prim (PrimV 'equal?) (list "hi" "hi") (make-test-store)) #t)
 (check-equal? (interp-prim (PrimV 'equal?) (list 3 #f) (make-test-store)) #f)
@@ -897,11 +972,36 @@
 
 ;; create-env tests
 #;(check-equal? (create-env (list 'a) (list 5) (list (Binding 'random 314)))
-              (list (Binding 'a 5) (Binding 'random 314)))
+                (list (Binding 'a 5) (Binding 'random 314)))
 #;(check-exn #rx"SHEQ: create-env received too many values were passed in application"
-           (lambda () (create-env (list 'a) (list 5 3 4) (list (Binding 'random 314)))))
+             (lambda () (create-env (list 'a) (list 5 3 4) (list (Binding 'random 314)))))
 #;(check-exn #rx"SHEQ: create-env received too few values were passed in application"
-           (lambda () (create-env (list 'a 'x) (list 4) (list (Binding 'random 314)))))
+             (lambda () (create-env (list 'a 'x) (list 4) (list (Binding 'random 314)))))
+
+
+;; make-default-env tests
+(check-equal? (make-default-env (make-initial-store 20))
+              (list
+               (Binding 'true 1)
+               (Binding 'false 2)
+               (Binding '+ 3)
+               (Binding '- 4)
+               (Binding '* 5)
+               (Binding '/ 6)
+               (Binding '<= 7)
+               (Binding 'equal? 8)
+               (Binding 'substring 9)
+               (Binding 'strlen 10)
+               (Binding 'error 11)
+               (Binding 'println 12)
+               (Binding 'read-num 13)
+               (Binding 'read-str 14)
+               (Binding '++ 15)
+               (Binding 'make-array 16)
+               (Binding 'array 17)
+               (Binding 'aref 18)
+               (Binding 'aset! 19)))
+
 
 ;; get-binding tests
 (check-equal? (get-binding 'sym (list (Binding 'sym 5))) 5)
@@ -912,25 +1012,40 @@
 (check-equal? (vector-length (make-initial-store 10)) (+ 10 (length top-env-defs)))
 (check-equal? (vector-ref (make-initial-store 102) 0) 1)
 
-;; make-default-env & store-get & store-set tests
-(define mde-store (make-initial-store 10))
+;; store-get tests
+(define mde-store (make-initial-store 100))
 (define mde-env (make-default-env mde-store))
 
 (check-equal? (store-get 'true mde-env mde-store) #t)
-(store-set! 'true 1 mde-env mde-store)
-(check-equal? (store-get 'true mde-env mde-store) 1)
+(store-set! 'true 1 mde-env mde-store) (NullV)
+(check-equal? (store-get 'true mde-env mde-store) 1) 
+
+;; store-set! test
+(check-equal? (store-set! 'true 2 mde-env mde-store) (NullV))
+(check-equal? (store-get 'true mde-env mde-store) 2) 
+
 
 ;; allocate tests
-(check-equal? (allocate (make-initial-store 12) 3) 1)
+(define allo-store-test : (Mutable-Vectorof Value) (make-vector 2 0))
+(check-equal? (allocate allo-store-test "one cell") 0)
+(check-equal? (allocate allo-store-test 12) 1)
 
+(check-exn #rx"SHEQ: Out of memory. Tried to allocate"
+           (lambda () (allocate allo-store-test "another cell"))) 
+
+;; allocate-lst tests
 (define st (make-initial-store 20))
+
 (check-equal? (allocate-lst st (list 1 2 3)) 4)
-(check-equal? (vector-ref st 0) 4)
 (check-equal? (allocate-lst st (list 1 2 3 4 5 6 7)) 11)
-(check-equal? (vector-ref st 0) 11)
 
 (define allo-err-store (make-initial-store 2))
 ; Populate the store with default env so that it doesn't have blank extra space
 (make-default-env allo-err-store)
-(check-exn #rx"SHEQ: Out of memory. Tried to allocate" (lambda () (allocate-lst allo-err-store (list 1 2 3))))
+(check-exn #rx"SHEQ: Out of memory. Tried to allocate"
+           (lambda () (allocate-lst allo-err-store (list 1 2 3))))
 
+
+;; next-address test
+(check-equal? (next-address st) 11)
+(check-equal? (next-address allo-store-test) 2)
