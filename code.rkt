@@ -471,7 +471,7 @@
 ;; allocate - takes a Vector of Values and a Value to store, returns the Natural pointer to the stored Value's address
 (define (allocate [stre : (Vectorof Value)] [val : Value]) : Natural
   (define next-free (next-address stre))
-  ;(printf "Allocating at ~a for value ~a\n" next-free val)
+
   (if (>= next-free (vector-length stre))
       (error 'allocate "SHEQ: Out of memory. Tried to allocate space for ~a." val)
       (vector-set! stre next-free val))
@@ -573,11 +573,11 @@
                       in
                       {seq
                        {while :=
-                              {lambda {condition body} :
-                                {if {condition}
+                              {lambda {guard body} :
+                                {if {guard}
                                     {seq
                                      {body}
-                                     {while condition body}}
+                                     {while guard body}}
                                     null}}}
                        {let {[x = 0]}
                          in
@@ -585,9 +585,9 @@
                           {while
                            {lambda (): {<= x 2}}
                            {lambda () : 
-                                 {seq
-                                  {println {++ "" x}}
-                                  {x := {+ x 1}}}}}
+                             {seq
+                              {println {++ "" x}}
+                              {x := {+ x 1}}}}}
                           x}
                          end}}
                       end})
@@ -602,27 +602,27 @@
      {seq
       
       {while :=
-             {lambda {condition body} :
-               {if {condition}
+             {lambda {guard body} :
+               {if {guard}
                    {seq
                     {body}
-                    {while condition body}}
+                    {while guard body}}
                    null}}}
       {in-order :=
                 {lambda (arr size) :
-                    {let {[i = 0]
-                          [result = true]}
-                      in
-                      {seq
-                       {while
-                        {lambda () :
-                          {and {<= i {- size 2}} result}}
-                        {lambda () :
-                          {if {<= {aref arr {+ i 1}} {aref arr i}}
-                              {result := false}
-                              {i := {+ i 1}}}}}
-                       result}
-                      end}}}
+                  {let {[i = 0]
+                        [result = true]}
+                    in
+                    {seq
+                     {while
+                      {lambda () :
+                        {and {<= i {- size 2}} result}}
+                      {lambda () :
+                        {if {<= {aref arr {+ i 1}} {aref arr i}}
+                            {result := false}
+                            {i := {+ i 1}}}}}
+                     result}
+                    end}}}
       {in-order {array 1 2 3} 3}}
      end})
 
@@ -713,8 +713,7 @@
            (lambda ()
              (test-interp (AppC (LamC '(x)
                                       (AppC (IdC '+) (list (IdC 'x) (NumC 1) (NumC 2))))
-                                (list (NumC 5)))
-                          )))
+                                (list (NumC 5))))))
 
 (check-exn #rx"SHEQ: Attempted to apply non function value"
            (lambda ()
