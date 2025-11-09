@@ -2,7 +2,7 @@
 (require typed/rackunit)
 
 ;; SHEQ6
-;; Status statement here.
+;; Fully finished implementation of SHEQ 6.
 
 ;; Data definitions
 
@@ -495,6 +495,67 @@
 
 
 ;; ---- Tests ----
+;; while : SHEQ implementation of the while loop
+(define sheq-while '{let {[while = "undefined"]}
+                      in
+                      {seq
+                       {while :=
+                              {lambda {guard body} :
+                                {if {guard}
+                                    {seq
+                                     {body}
+                                     {while guard body}}
+                                    null}}}
+                       {let {[x = 0]}
+                         in
+                         {seq
+                          {while
+                           {lambda (): {<= x 2}}
+                           {lambda () : 
+                             {seq
+                              {println {++ "" x}}
+                              {x := {+ x 1}}}}}
+                          x}
+                         end}}
+                      end})
+
+(check-equal? (top-interp sheq-while 100) "3")
+
+;; in-order : accepts an array of numbers and its size, returns true if array is increasing order
+(define sheq-in-order
+  '{let {[while = "undefined"]
+         [in-order = "undefined"]
+         [not = {lambda (b) : {if b false true}}]
+         [and = {lambda (a b) : {if a b false}}]}
+     in
+     {seq
+      
+      {while :=
+             {lambda {guard body} :
+               {if {guard}
+                   {seq
+                    {body}
+                    {while guard body}}
+                   null}}}
+      {in-order :=
+                {lambda (arr size) :
+                  {let {[i = 0]
+                        [result = true]}
+                    in
+                    {seq
+                     {while
+                      {lambda () :
+                        {and {<= i {- size 2}} result}}
+                      {lambda () :
+                        {if {<= {aref arr {+ i 1}} {aref arr i}}
+                            {result := false}
+                            {i := {+ i 1}}}}}
+                     result}
+                    end}}}
+      {in-order {array 1 2 3} 3}}
+     end})
+
+(check-equal? (top-interp sheq-in-order 599) "true")
 
 ;; Large test
 ; The program calculates two areas using two different functions, and then compares them.
@@ -568,67 +629,7 @@
                               {fact 2}}
                              end} 100) "2")
 
-;; while : SHEQ implementation of the while loop
-(define sheq-while '{let {[while = "undefined"]}
-                      in
-                      {seq
-                       {while :=
-                              {lambda {guard body} :
-                                {if {guard}
-                                    {seq
-                                     {body}
-                                     {while guard body}}
-                                    null}}}
-                       {let {[x = 0]}
-                         in
-                         {seq
-                          {while
-                           {lambda (): {<= x 2}}
-                           {lambda () : 
-                             {seq
-                              {println {++ "" x}}
-                              {x := {+ x 1}}}}}
-                          x}
-                         end}}
-                      end})
 
-;; in-order : accepts an array of numbers and its size, returns true if array is increasing order
-(define sheq-in-order
-  '{let {[while = "undefined"]
-         [in-order = "undefined"]
-         [not = {lambda (b) : {if b false true}}]
-         [and = {lambda (a b) : {if a b false}}]}
-     in
-     {seq
-      
-      {while :=
-             {lambda {guard body} :
-               {if {guard}
-                   {seq
-                    {body}
-                    {while guard body}}
-                   null}}}
-      {in-order :=
-                {lambda (arr size) :
-                  {let {[i = 0]
-                        [result = true]}
-                    in
-                    {seq
-                     {while
-                      {lambda () :
-                        {and {<= i {- size 2}} result}}
-                      {lambda () :
-                        {if {<= {aref arr {+ i 1}} {aref arr i}}
-                            {result := false}
-                            {i := {+ i 1}}}}}
-                     result}
-                    end}}}
-      {in-order {array 1 2 3} 3}}
-     end})
-
-(check-equal? (top-interp sheq-in-order 599) "true")
-
-(check-equal? (top-interp sheq-while 100) "3")
 
 ;; - incorect num of arguments (from handin)
 (check-exn #rx"SHEQ: Incorrect number of arguments for CloV"
