@@ -568,6 +568,7 @@
                               {fact 2}}
                              end} 100) "2")
 
+;; while : SHEQ implementation of the while loop
 (define sheq-while '{let {[while = "undefined"]}
                       in
                       {seq
@@ -590,6 +591,42 @@
                           x}
                          end}}
                       end})
+
+;; in-order : accepts an array of numbers and its size, returns true if array is increasing order
+(define sheq-in-order
+  '{let {[while = "undefined"]
+         [in-order = "undefined"]
+         [not = {lambda (b) : {if b false true}}]
+         [and = {lambda (a b) : {if a b false}}]}
+     in
+     {seq
+      
+      {while :=
+             {lambda {condition body} :
+               {if {condition}
+                   {seq
+                    {body}
+                    {while condition body}}
+                   null}}}
+      {in-order :=
+                {lambda (arr size) :
+                    {let {[i = 0]
+                          [result = true]}
+                      in
+                      {seq
+                       {while
+                        {lambda () :
+                          {and {<= i {- size 2}} result}}
+                        {lambda () :
+                          {if {<= {aref arr {+ i 1}} {aref arr i}}
+                              {result := false}
+                              {i := {+ i 1}}}}}
+                       result}
+                      end}}}
+      {in-order {array 1 2 3} 3}}
+     end})
+
+(check-equal? (top-interp sheq-in-order 599) "true")
 
 (check-equal? (top-interp sheq-while 100) "3")
 
