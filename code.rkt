@@ -513,7 +513,8 @@
                                      {body}
                                      {while guard body}}
                                     null}}}
-                       {let {[x = 0]}
+                       ;; Test for while loop (commented out for Handin)
+                       #; {let {[x = 0]}
                          in
                          {seq
                           {while
@@ -524,24 +525,28 @@
                               {x := {+ x 1}}}}}
                           x}
                          end}
-                       }
+                       while}
                       end})
 
+;; Test for while (commented out for Handin)
+; (check-equal? (top-interp while 100) "3")
 
-(check-equal? (top-interp while 100) "3")
+(check-equal? (top-interp while 200) "#<procedure>")
 
 
 
 ;; in-order : accepts an array of numbers and its size, returns true if array is increasing order
 (define in-order
-  '{let {[while = "undefined"]
+  '{let {
+         ;; commented out while function for own tests
+         #; [while = "undefined"]
          [in-order = "undefined"]
          [not = {lambda (b) : {if b false true}}]
          [and = {lambda (a b) : {if a b false}}]}
      in
      {seq
-      
-      {while :=
+      ;; commented out while function for own tests
+      #; {while :=
              {lambda {guard body} :
                {if {guard}
                    {seq
@@ -563,10 +568,15 @@
                             {i := {+ i 1}}}}}
                      result}
                     end}}}
-      {in-order {array 1 2 3} 3}}
+      ;; Commented out test for Handin
+      #; {in-order {array 1 2 3} 3}
+      in-order}
      end})
 
-(check-equal? (top-interp in-order 599) "true")
+;; Test for in-order (commented out for Handin)
+; (check-equal? (top-interp in-order 599) "true")
+(check-equal? (top-interp in-order 200) "#<procedure>")
+
 
 ;; Large test
 ; The program calculates two areas using two different functions, and then compares them.
@@ -1016,7 +1026,7 @@
 (check-equal? (reserved-symbol? 'lambda) #t)
 (check-equal? (reserved-symbol? '+++) #f)
 
-;; make-default-env tests
+;; make-default-env test
 (check-equal? (make-default-env (make-initial-store 20))
               (list
                (Binding 'true 1)
