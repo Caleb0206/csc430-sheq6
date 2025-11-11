@@ -504,29 +504,29 @@
 ;; ---- Tests ----
 ;; while : SHEQ implementation of the while loop
 (define while '{let {[while = "undefined"]}
-                      in
-                      {seq
-                       {while :=
-                              {lambda {guard body} :
-                                {if {guard}
-                                    {seq
-                                     {body}
-                                     {while guard body}}
-                                    null}}}
-                       ;; Test for while loop (commented out for Handin)
-                       #; {let {[x = 0]}
-                         in
-                         {seq
-                          {while
-                           {lambda (): {<= x 2}}
-                           {lambda () : 
-                             {seq
-                              {println {++ "" x}}
-                              {x := {+ x 1}}}}}
-                          x}
-                         end}
-                       while}
-                      end})
+                 in
+                 {seq
+                  {while :=
+                         {lambda {guard body} :
+                           {if {guard}
+                               {seq
+                                {body}
+                                {while guard body}}
+                               null}}}
+                  ;; Test for while loop (commented out for Handin)
+                  #; {let {[x = 0]}
+                       in
+                       {seq
+                        {while
+                         {lambda (): {<= x 2}}
+                         {lambda () : 
+                           {seq
+                            {println {++ "" x}}
+                            {x := {+ x 1}}}}}
+                        x}
+                       end}
+                  while}
+                 end})
 
 ;; Test for while (commented out for Handin)
 ; (check-equal? (top-interp while 100) "3")
@@ -547,12 +547,12 @@
      {seq
       ;; commented out while function for own tests
       #; {while :=
-             {lambda {guard body} :
-               {if {guard}
-                   {seq
-                    {body}
-                    {while guard body}}
-                   null}}}
+                {lambda {guard body} :
+                  {if {guard}
+                      {seq
+                       {body}
+                       {while guard body}}
+                      null}}}
       {in-order :=
                 {lambda (arr size) :
                   {let {[i = 0]
